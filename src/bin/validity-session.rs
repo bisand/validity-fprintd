@@ -12,6 +12,8 @@ use validity_fprintd::tls::{PairingMaterial, Tls};
 use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
+    // Die quietly when piped into head, or into a less that is quit early.
+    validity_fprintd::restore_sigpipe();
     let trace = std::env::args().any(|a| a == "--trace");
     println!("validity-fprintd session test (read-only)\n");
 

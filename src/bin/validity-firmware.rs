@@ -11,6 +11,8 @@ use validity_fprintd::init::open_session;
 use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
+    // Die quietly when piped into head, or into a less that is quit early.
+    validity_fprintd::restore_sigpipe();
     let args: Vec<String> = std::env::args().collect();
     let trace = args.iter().any(|a| a == "--trace");
     let upload = args.iter().any(|a| a == "--upload");

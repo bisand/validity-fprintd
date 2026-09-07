@@ -10,6 +10,8 @@ use validity_fprintd::pairing::{host_identity, inspect_pairing, parse_flash_bloc
 use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
+    // Die quietly when piped into head, or into a less that is quit early.
+    validity_fprintd::restore_sigpipe();
     let trace = std::env::args().any(|a| a == "--trace");
 
     println!("validity-fprintd probe (read-only)\n");

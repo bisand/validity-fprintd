@@ -10,6 +10,8 @@ use validity_fprintd::init::{open_session, reboot};
 use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
+    // Die quietly when piped into head, or into a less that is quit early.
+    validity_fprintd::restore_sigpipe();
     let trace = std::env::args().any(|a| a == "--trace");
     println!("validity-fprintd database dump (read-only)\n");
 

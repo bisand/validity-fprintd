@@ -1153,6 +1153,7 @@ dependencies = [
  "cbc",
  "hex",
  "hmac",
+ "libc",
  "p256",
  "rand",
  "rusb",

@@ -10,6 +10,8 @@ use validity_fprintd::timeslot::{split_chunks, CHUNK_TIMESLOT_OFFSET, CHUNK_TIME
 use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
+    // Die quietly when piped into head, or into a less that is quit early.
+    validity_fprintd::restore_sigpipe();
     let trace = std::env::args().any(|a| a == "--trace");
     println!("validity-fprintd sensor identification (read-only)\n");
 

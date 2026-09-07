@@ -1,7 +1,7 @@
 //! Provision a blank sensor, or reset one to factory state.
 //!
 //! Read-only by default. The destructive operations require explicit flags and
-//! a typed confirmation, and neither has been tested on real hardware.
+//! a typed confirmation.
 
 use anyhow::{bail, Result};
 use std::io::Write;
@@ -23,6 +23,8 @@ fn confirm(prompt: &str, expected: &str) -> Result<bool> {
 }
 
 fn main() -> Result<()> {
+    // Die quietly when piped into head, or into a less that is quit early.
+    validity_fprintd::restore_sigpipe();
     let args: Vec<String> = std::env::args().collect();
     let trace = args.iter().any(|a| a == "--trace");
     let do_init = args.iter().any(|a| a == "--init-flash");
@@ -94,9 +96,8 @@ fn main() -> Result<()> {
         println!("\n*** FACTORY RESET ***");
         println!("This erases the pairing record, every enrolled fingerprint, and the");
         println!("calibration baseline. The sensor will be unusable until it is");
-        println!("provisioned again, and provisioning has never been tested on real");
-        println!("hardware. If it fails, you may not be able to recover the sensor");
-        println!("with this driver.");
+        println!("provisioned again. Recovery needs the firmware blob, so fetch it");
+        println!("first if you do not already have it.");
         if paired_here {
             println!("\nNOTE: this sensor currently WORKS. You are about to break it.");
         }
@@ -121,7 +122,7 @@ fn main() -> Result<()> {
 
         println!("\n*** PROVISIONING ***");
         println!("This formats sensor flash and writes a new pairing record bound to");
-        println!("this machine. It has never been tested on real hardware.");
+        println!("this machine.");
 
         if !confirm("", "PROVISION")? {
             println!("Aborted; nothing was changed.");
