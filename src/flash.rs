@@ -170,3 +170,67 @@ pub fn call_cleanups(t: &mut impl Transport) -> Result<()> {
     }
     check_status(&rsp).context("committing database writes")
 }
+
+/// `0x3f` — erase a partition. Requires the write-enable blob.
+pub fn erase_flash(t: &mut impl Transport, write_enable_blob: &[u8], partition: u8) -> Result<()> {
+    write_enable(t, write_enable_blob)?;
+    let result = check_status(&t.cmd(&[0x3f, partition])?).context("erasing partition");
+    // Commit even on failure, so the device is not left mid-transaction.
+    let cleanup = call_cleanups(t);
+    result?;
+    cleanup
+}
+
+/// `0x41` — write a chunk to a partition.
+pub fn write_flash(
+    t: &mut impl Transport,
+    write_enable_blob: &[u8],
+    partition: u8,
+    addr: u32,
+    buf: &[u8],
+) -> Result<()> {
+    write_enable(t, write_enable_blob)?;
+
+    let mut cmd = Vec::with_capacity(13 + buf.len());
+    cmd.push(0x41);
+    cmd.push(partition);
+    cmd.push(1);
+    cmd.extend_from_slice(&0u16.to_le_bytes());
+    cmd.extend_from_slice(&addr.to_le_bytes());
+    cmd.extend_from_slice(&(buf.len() as u32).to_le_bytes());
+    cmd.extend_from_slice(buf);
+
+    let result = check_status(&t.cmd(&cmd)?).context("writing flash");
+    let cleanup = call_cleanups(t);
+    result?;
+    cleanup
+}
+
+/// Write a whole buffer in 4 KiB chunks.
+pub fn write_flash_all(
+    t: &mut impl Transport,
+    write_enable_blob: &[u8],
+    partition: u8,
+    start: u32,
+    buf: &[u8],
+) -> Result<()> {
+    const BS: usize = 0x1000;
+    let mut addr = start;
+    for chunk in buf.chunks(BS) {
+        write_flash(t, write_enable_blob, partition, addr, chunk)?;
+        addr += chunk.len() as u32;
+    }
+    Ok(())
+}
+
+/// `0x42` — attach the vendor signature to a firmware partition.
+pub fn write_fw_signature(
+    t: &mut impl Transport,
+    partition: u8,
+    signature: &[u8],
+) -> Result<()> {
+    let mut cmd = vec![0x42, partition, 0];
+    cmd.extend_from_slice(&(signature.len() as u16).to_le_bytes());
+    cmd.extend_from_slice(signature);
+    check_status(&t.cmd(&cmd)?).context("writing firmware signature")
+}

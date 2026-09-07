@@ -198,7 +198,7 @@ impl Calibration {
     }
 
     /// Average interleaved calibration lines down to one frame.
-    fn average(&self, raw: &[u8], cfg: &SensorConfig) -> Result<Vec<u8>> {
+    pub(crate) fn average(&self, raw: &[u8], cfg: &SensorConfig) -> Result<Vec<u8>> {
         let frame_size = (cfg.lines_per_frame * cfg.bytes_per_line) as usize;
         let interleave = (cfg.lines_per_frame / cfg.type_info.lines_per_calibration_data) as usize;
         let mut input_frames = cfg.calibration_frames as usize;
@@ -549,7 +549,7 @@ pub fn capture(
 /// Partition holding the "clean slate" blank reference image.
 pub const PARTITION_CALIBRATION: u8 = 6;
 /// Magic word at the head of a valid clean-slate record.
-const CLEAN_SLATE_MAGIC: u16 = 0x5002;
+pub(crate) const CLEAN_SLATE_MAGIC: u16 = 0x5002;
 
 /// Check whether the sensor already holds a valid blank reference image.
 ///

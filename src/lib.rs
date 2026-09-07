@@ -5,6 +5,7 @@
 //! vendor; the wire format implemented here was established by the
 //! reverse-engineering work of the python-validity project (MIT).
 
+pub mod baseline;
 pub mod blobs;
 pub mod capture;
 pub mod crypto;
