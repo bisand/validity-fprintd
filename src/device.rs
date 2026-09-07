@@ -145,6 +145,12 @@ impl Sensor {
         )
     }
 
+    /// Delete every finger enrolled for `username`. Returns how many went.
+    pub fn delete_enrolled_fingers(&mut self, username: &str) -> Result<usize> {
+        let sid = sid_for_user(username)?;
+        crate::db::delete_all_fingers(&mut self.tls, &sid)
+    }
+
     /// Reboot the sensor to release its session context. Only on shutdown:
     /// the device leaves the USB bus briefly afterwards.
     pub fn shutdown(mut self) {

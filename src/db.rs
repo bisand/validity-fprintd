@@ -365,3 +365,44 @@ pub fn finger_subtype(name: &str) -> Option<u16> {
         _ => return None,
     })
 }
+
+/// `0x48` — delete a record by id.
+pub fn del_record(t: &mut impl Transport, dbid: u16) -> Result<()> {
+    let mut cmd = vec![0x48];
+    cmd.extend_from_slice(&dbid.to_le_bytes());
+    check_status(&t.cmd(&cmd)?).context("deleting database record")
+}
+
+/// Delete every finger a user has enrolled with the given subtype.
+///
+/// fprintd semantics are that re-enrolling a finger replaces it, so callers
+/// clear the old record before writing a new one.
+pub fn delete_fingers_of_subtype(
+    t: &mut impl Transport,
+    identity: &SidIdentity,
+    subtype: u16,
+) -> Result<usize> {
+    let Some(user) = lookup_user(t, identity)? else {
+        return Ok(0);
+    };
+    let doomed: Vec<u16> =
+        user.fingers.iter().filter(|f| f.subtype == subtype).map(|f| f.dbid).collect();
+
+    for dbid in &doomed {
+        del_record(t, *dbid)?;
+    }
+    Ok(doomed.len())
+}
+
+/// Delete all of a user's enrolled fingers.
+pub fn delete_all_fingers(t: &mut impl Transport, identity: &SidIdentity) -> Result<usize> {
+    let Some(user) = lookup_user(t, identity)? else {
+        return Ok(0);
+    };
+    let doomed: Vec<u16> = user.fingers.iter().map(|f| f.dbid).collect();
+
+    for dbid in &doomed {
+        del_record(t, *dbid)?;
+    }
+    Ok(doomed.len())
+}

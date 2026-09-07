@@ -5,7 +5,7 @@
 //! enough. Completion is signalled by the appearance of a template id.
 
 use crate::capture::{capture, glow_end_scan, glow_start_scan, wait_int, Calibration};
-use crate::db::{lookup_user, new_finger, new_user};
+use crate::db::{delete_fingers_of_subtype, lookup_user, new_finger, new_user};
 use crate::flash::{call_cleanups, write_enable};
 use crate::sensor::{CaptureMode, SensorConfig};
 use crate::sid::SidIdentity;
@@ -195,6 +195,9 @@ pub fn enroll(
 
     // The reference implementation ends the update twice; the sensor expects it.
     let _ = enrollment_update_end(tls);
+
+    // fprintd semantics: re-enrolling a finger replaces the old record.
+    delete_fingers_of_subtype(tls, identity, subtype)?;
 
     let tinfo = make_finger_data(subtype, &template, &tid);
     let user_dbid = match lookup_user(tls, identity)? {

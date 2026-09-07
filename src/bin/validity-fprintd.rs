@@ -117,12 +117,36 @@ impl Device {
         .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
     }
 
-    async fn delete_enrolled_fingers(&self, _username: String) -> zbus::fdo::Result<()> {
-        Err(zbus::fdo::Error::NotSupported("deleting enrolments is not implemented".into()))
+    async fn delete_enrolled_fingers(&self, username: String) -> zbus::fdo::Result<()> {
+        let user = resolve_user(&username);
+        let slot = self.sensor.clone();
+        tokio::task::spawn_blocking(move || {
+            with_sensor(&slot, |s| s.delete_enrolled_fingers(&user))
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map(|_| ())
+        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
     }
 
+    /// Same as `DeleteEnrolledFingers`, but for the claiming user.
     async fn delete_enrolled_fingers2(&self) -> zbus::fdo::Result<()> {
-        Err(zbus::fdo::Error::NotSupported("deleting enrolments is not implemented".into()))
+        let user = self
+            .state
+            .lock()
+            .await
+            .claimed_by
+            .clone()
+            .ok_or_else(|| zbus::fdo::Error::Failed("device is not claimed".into()))?;
+
+        let slot = self.sensor.clone();
+        tokio::task::spawn_blocking(move || {
+            with_sensor(&slot, |s| s.delete_enrolled_fingers(&user))
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map(|_| ())
+        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
     }
 
     /// Begin an enrolment. Progress arrives as `EnrollStatus` signals; the
