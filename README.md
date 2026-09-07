@@ -275,6 +275,21 @@ key is stored encrypted under a key derived from the machine's DMI
 `product_name` and `product_serial`. That binding is why a sensor paired under
 one OS install will not open under another.
 
+## Making a release
+
+Releases are built when a GitHub Release is **published**, not when a tag is
+pushed, so the notes describing what changed are written by hand.
+
+1. Tag and push the commit to release:
+   `git tag v0.1.0 && git push origin v0.1.0`
+2. Draft a release for that tag on GitHub and write the notes.
+3. Publish it. CI builds both architectures, checks each binary is
+   self-contained, and attaches the tarballs and `SHA256SUMS` to the release.
+
+The notes are never overwritten: CI uploads assets to the existing release
+rather than creating one. To check a build without publishing anything, run the
+workflow manually and give it an existing tag.
+
 ## Credit
 
 The wire protocol is undocumented by the vendor. It was established by the

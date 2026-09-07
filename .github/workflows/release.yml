@@ -1,12 +1,26 @@
 name: release
 
+# Builds when a GitHub Release is published, so the release notes are written
+# by hand rather than generated from commit subjects. The binaries are attached
+# to the release that triggered the run.
+#
+# workflow_dispatch builds an existing tag without touching any release, which
+# is useful for checking a build before publishing.
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (no release assets are uploaded)"
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   build:
@@ -21,13 +35,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      # cross builds in a container that already has the musl toolchain, which
-      # matters because the vendored libusb is C and needs a musl cross compiler.
+      # cross builds in a container that already carries the musl toolchain and
+      # Linux uapi headers, which the vendored libusb needs to compile.
       - name: Install cross
         run: cargo install cross --locked
 
@@ -46,26 +62,27 @@ jobs:
       # "Statically linked" from ldd is not enough: a binary can have no shared
       # libraries yet still carry a PT_INTERP entry naming the musl loader, in
       # which case it fails to exec anywhere musl is not installed.
-      - name: Verify the binary is truly self-contained
+      - name: Verify the binaries are self-contained
         run: |
-          F="target/${{ matrix.target }}/release/validity-fprintd"
-          file "$F"
-          readelf -lWd "$F" | grep -E "INTERP|NEEDED|Requesting" || true
-
-          if readelf -l "$F" | grep -q INTERP; then
-            echo "::error::binary requests a program interpreter and will not run without it"
-            exit 1
-          fi
-          if readelf -d "$F" 2>/dev/null | grep -q NEEDED; then
-            echo "::error::binary has shared library dependencies"
-            exit 1
-          fi
+          for b in validity-fprintd validity-probe validity-session validity-db \
+                   validity-sensor validity-verify validity-baseline \
+                   validity-firmware validity-provision; do
+            F="target/${{ matrix.target }}/release/$b"
+            if readelf -l "$F" | grep -q INTERP; then
+              echo "::error::$b requests a program interpreter and will not run without it"
+              exit 1
+            fi
+            if readelf -d "$F" 2>/dev/null | grep -q NEEDED; then
+              echo "::error::$b has shared library dependencies"
+              exit 1
+            fi
+            echo "$b: self-contained"
+          done
 
       - name: Package
         id: package
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$VERSION" = "$GITHUB_REF_NAME" ] && VERSION="$(git rev-parse --short HEAD)"
+          VERSION="${TAG#v}"
           NAME="validity-fprintd-${VERSION}-${{ matrix.target }}"
 
           mkdir -p "dist/$NAME/bin" "dist/$NAME/share"
@@ -92,10 +109,12 @@ jobs:
             *.tar.gz
             *.tar.gz.sha256
 
-  release:
+  publish:
+    name: attach to release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only a published release has somewhere to put the assets.
+    if: github.event_name == 'release'
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -103,11 +122,13 @@ jobs:
           merge-multiple: true
 
       - name: Collect checksums
-        run: cat dist/*.sha256 > dist/SHA256SUMS
+        run: |
+          cat dist/*.sha256 > dist/SHA256SUMS
+          rm -f dist/*.sha256
+          cat dist/SHA256SUMS
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.tar.gz
-            dist/SHA256SUMS
-          generate_release_notes: true
+      # Upload rather than create, so the notes written on the release are kept.
+      - name: Attach assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
