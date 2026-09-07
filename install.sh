@@ -1,7 +1,11 @@
 #!/bin/sh
 # validity-fprintd installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
+#   curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh -o install.sh
+#   sudo sh install.sh
+#
+# Piping into `sudo sh` works too, but only from an interactive terminal:
+# sudo cannot prompt for a password when its stdin is the piped script.
 #
 # Downloads the latest release binaries, verifies their checksum, and sets up
 # the service for whichever init system is in use. Does not touch PAM; see the
@@ -229,4 +233,4 @@ say "Elsewhere, add this above the password line in the relevant files:"
 say "  auth sufficient pam_fprintd.so"
 say "Keep it 'sufficient' so a failed finger falls through to your password."
 say ""
-say "Uninstall:  curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | sudo sh -s -- --uninstall"
+say "Uninstall:  sudo sh install.sh --uninstall"
