@@ -6,6 +6,85 @@ support, so `fprintd` reports *"No devices available"* on every distribution.
 
 Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
 
+## What it looks like
+
+Before, with stock `libfprint` — the sensor is on the bus, but no driver claims it:
+
+```console
+$ fprintd-list $USER
+Impossible to list devices: GDBus.Error:net.reactivated.Fprint.Error.NoSuchDevice: No devices available
+```
+
+After. The sensor identifies itself, and its pairing record decrypts against
+this machine:
+
+```console
+$ sudo validity-probe
+Device      : 06cb:009a (Synaptics Metallica MIS)
+Firmware    : v1.2, buildtime 0x5e2e83e9, 8 modules
+Flash       : JEDEC 0x00ef:0x0040, 4096 blocks x 256 bytes
+  partition 0x01 type 0x04 access 0x0007 @ 0x00001000 size 0x00001000
+  partition 0x02 type 0x01 access 0x0002 @ 0x00002000 size 0x0003e000
+  partition 0x04 type 0x03 access 0x0005 @ 0x00050000 size 0x00080000
+
+Pairing record blocks:
+  id 0x0004  161 bytes
+  id 0x0003  184 bytes
+  id 0x0006  400 bytes
+
+Host        : 20KH003BMX / serial ****6GM6
+Status      : PAIRED TO THIS HOST
+  The sensor's private key decrypted and authenticated.
+  A TLS session can be established without re-pairing.
+```
+
+Fingers are enrolled on the sensor itself, not on the host:
+
+```console
+$ sudo validity-db
+Database    : 524288 bytes total, 71168 used, 313088 free, 15 records
+Storage     : 'StgWindsor' (dbid 3), 1 user(s)
+
+User 4 — identity S-1-5-21-111111111-1111111111-1111111111-1000
+  finger dbid    6  subtype 0x03 (right-middle-finger)  23064 bytes
+  finger dbid    8  subtype 0x07 (left-index-finger)  23080 bytes
+  finger dbid    9  subtype 0x02 (right-index-finger)  23064 bytes
+```
+
+Matching happens on the chip; the host never sees image data:
+
+```console
+$ sudo validity-verify
+Sensor      : 57K0 FM-3367-001 (type 0x0199)
+Enrolled    : 3 finger(s) across 1 user(s)
+Baseline    : valid clean-slate image present on sensor flash
+Calibrating (3 iterations)... 13440 bytes of calibration data
+
+>>> Touch the fingerprint sensor now (30s timeout) <<<
+
+Captured    : x=112 y=112 w1=333 w2=8
+
+MATCH
+  user dbid : 4
+  finger    : 0x02 (right-index-finger)
+  identity  : S-1-5-21-111111111-1111111111-1111111111-1000
+```
+
+And through PAM, which is the point of the whole exercise:
+
+```console
+$ sudo -k && sudo ls
+Place your finger on the fingerprint reader
+Cargo.toml  LICENSE  README.md  packaging  scripts  src  udev
+
+$ journalctl -u validity-fprintd -n 5 --no-pager
+session: opened with 57K0 FM-3367-001 (type 0x0199)
+calibration: loaded 13440 bytes from cache
+claim: bisand
+verify: bisand matched right-index-finger
+verify: verify-match after 1.9s
+```
+
 ## Status
 
 Working and verified against real hardware on a ThinkPad X1 Carbon 6th gen
