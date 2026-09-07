@@ -382,20 +382,32 @@ async fn resolve_user(
 async fn main() -> Result<()> {
     eprintln!("validity-fprintd starting on {BUS_NAME}");
 
+    let sensor: SensorSlot = Arc::new(StdMutex::new(None));
+
     let _conn = zbus::connection::Builder::system()?
         .name(BUS_NAME)?
         .serve_at(MANAGER_PATH, Manager)?
         .serve_at(
             DEVICE_PATH,
-            Device {
-                state: Arc::new(Mutex::new(DeviceState::default())),
-                sensor: Arc::new(StdMutex::new(None)),
-            },
+            Device { state: Arc::new(Mutex::new(DeviceState::default())), sensor: sensor.clone() },
         )?
         .build()
         .await?;
 
     eprintln!("validity-fprintd ready");
-    std::future::pending::<()>().await;
+
+    // Shut down cleanly. Killing the daemon mid-session leaves the sensor with
+    // an open context, after which even plain commands fail until it is reset.
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
+
+    eprintln!("shutting down, releasing the sensor session");
+    let held = sensor.lock().expect("sensor mutex poisoned").take();
+    if let Some(s) = held {
+        s.shutdown();
+    }
     Ok(())
 }

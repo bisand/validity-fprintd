@@ -83,6 +83,11 @@ impl Usb {
             )
         })?;
 
+        // Reset before claiming. A previous user that exited abruptly can leave
+        // a session context open, after which even plain commands fail; a reset
+        // clears that, so every tool starts from a known state.
+        let _ = handle.reset();
+
         let mut detached_kernel_driver = false;
         if handle.kernel_driver_active(interface).unwrap_or(false) {
             handle.detach_kernel_driver(interface).context("detaching kernel driver")?;
