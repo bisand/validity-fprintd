@@ -381,6 +381,33 @@ The notes are never overwritten: CI uploads assets to the existing release
 rather than creating one. To check a build without publishing anything, run the
 workflow manually and give it an existing tag.
 
+## Warranty and risk
+
+There is none: this is MIT-licensed and provided as is, without warranty of
+any kind. See [LICENSE](LICENSE).
+
+Beyond the legal boilerplate, it is worth being concrete about what this
+software does, because most drivers do not do it:
+
+- It **writes to the sensor's flash** — firmware, the pairing record, the
+  calibration baseline and the enrolment database. Those writes are how a bare
+  sensor is made to work at all.
+- `validity-provision --factory-reset` **erases the pairing record, every
+  enrolled fingerprint and the calibration baseline**. Recovery means
+  reprovisioning, which needs the firmware blob from Lenovo's installer. Fetch
+  it before you reset anything.
+- Destructive operations sit behind an explicit flag and a typed confirmation.
+  Nothing writes to the sensor unless you ask it to.
+- It has been exercised on **one sensor, one machine, one distribution**
+  (`06cb:009a`, ThinkPad X1 Carbon 6th gen, Arch). The type-2 capture path has
+  never run at all, and the aarch64 binaries have never been executed.
+
+On authentication specifically: `pam_fprintd` is configured as `sufficient`,
+not `required`, so a failed or unavailable fingerprint falls through to your
+password. A fingerprint is a convenience, not a stronger factor than the
+password behind it. If you would rather not rely on it, leave PAM alone and
+use the CLI tools.
+
 ## Credit
 
 The wire protocol is undocumented by the vendor. It was established by the
