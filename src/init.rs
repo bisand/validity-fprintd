@@ -38,3 +38,29 @@ pub fn reboot(t: &mut impl crate::usb::Transport) -> Result<()> {
     let _ = t.cmd(&[0x05, 0x02, 0x00]);
     Ok(())
 }
+
+/// Bring the device up and open an encrypted session in one step.
+pub fn open_session(usb: &mut Usb) -> Result<(crate::tls::Tls<'_>, bool)> {
+    use crate::crypto::HostKeys;
+    use crate::flash::read_tls_flash;
+    use crate::pairing::{build_material, host_identity, parse_flash_blocks};
+    use crate::tls::{PairingMaterial, Tls};
+
+    send_init(usb)?;
+    let blocks = parse_flash_blocks(&read_tls_flash(usb)?)?;
+    let (product_name, product_serial) = host_identity()?;
+    let keys = HostKeys::derive(&product_name, &product_serial);
+    let material = build_material(&blocks, &keys)?;
+    let signature_valid = material.firmware_signature_valid;
+
+    let mut tls = Tls::new(
+        &*usb,
+        PairingMaterial {
+            private_key_d: material.private_key_d,
+            tls_cert: material.tls_cert,
+            ecdh_public: material.ecdh_public,
+        },
+    );
+    tls.open()?;
+    Ok((tls, signature_valid))
+}

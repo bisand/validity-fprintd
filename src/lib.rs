@@ -7,8 +7,10 @@
 
 pub mod blobs;
 pub mod crypto;
+pub mod db;
 pub mod init;
 pub mod flash;
 pub mod pairing;
+pub mod sid;
 pub mod tls;
 pub mod usb;
