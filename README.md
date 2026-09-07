@@ -8,25 +8,30 @@ Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
 
 ## Status
 
-This is a work in progress. What is implemented and verified against real
-hardware:
+Working, verified against real hardware — this driver successfully captures a
+fingerprint and matches it on-chip:
 
 | Capability | Status |
 |---|---|
 | USB bulk transport, endpoint discovery, kernel-driver handoff | Working |
 | Signed vendor init handshake | Working |
-| Pairing-record parsing and integrity checks | Working |
-| Host key derivation from DMI identity | Working |
+| Pairing-record parsing and host key derivation | Working |
 | Sensor authentication via Synaptics firmware signature | Working |
 | Encrypted session (the firmware's TLS 1.2 dialect) | Working |
-| Flash reads over plain and encrypted transports | Working |
-| Image capture | Not yet implemented |
-| Enrolment and verification | Not yet implemented |
+| Flash access over plain and encrypted transports | Working |
+| On-chip enrolment database (storage, users, fingers) | Working |
+| Sensor identification, geometry and capture-program selection | Working |
+| Calibration and capture-program patching (type-1 sensors) | Working |
+| Image capture and on-chip matching | Working |
+| Enrolment of new fingers | Not yet implemented |
 | `fprintd` / PAM integration | Not yet implemented |
 
-It cannot yet authenticate a fingerprint. It can establish a trusted, encrypted
-channel to the sensor and read its state, which is the foundation everything
-else builds on.
+Matching requires fingers that are already enrolled — by the Windows driver, by
+python-validity, or by this driver once enrolment lands. There is no login
+integration yet, so this is not yet a drop-in replacement for `fprintd`.
+
+Only the type-1 line-update path is implemented. Type-2 sensors are recognised
+but will refuse to capture.
 
 ## Supported devices
 
@@ -47,19 +52,28 @@ cargo build --release
 
 ## Tools
 
-Both are read-only and write nothing to the sensor.
+All of these write nothing to the sensor.
 
 ```sh
-# Report device, firmware, flash layout and pairing state.
+# Device, firmware, flash layout and pairing state.
 sudo ./target/release/vfs-probe
 
 # Open an encrypted session and read the partition table back through it.
 sudo ./target/release/vfs-session
+
+# List storage objects, users and enrolled fingers.
+sudo ./target/release/vfs-db
+
+# Sensor identity, geometry and capture-program selection.
+sudo ./target/release/vfs-sensor
+
+# Calibrate, capture a fingerprint and match it on-chip.
+sudo ./target/release/vfs-verify
 ```
 
 Root is required for raw USB access and to read `/sys/class/dmi/id/product_serial`,
-which the pairing keys are derived from. Pass `--trace` to either tool for a hex
-dump of the wire traffic.
+which the pairing keys derive from. Pass `--trace` to any tool for a hex dump of
+the wire traffic.
 
 ### Pairing states
 
