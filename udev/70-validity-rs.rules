@@ -1,0 +1,6 @@
+# Validity / Synaptics match-on-chip fingerprint sensors.
+# Grants the seat's active local user access to the sensor.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="138a", ATTRS{idProduct}=="0090", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="138a", ATTRS{idProduct}=="0097", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="138a", ATTRS{idProduct}=="009d", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="06cb", ATTRS{idProduct}=="009a", TAG+="uaccess"

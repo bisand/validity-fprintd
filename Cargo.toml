@@ -1,0 +1,19 @@
+[package]
+name = "validity-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust driver for Synaptics/Validity match-on-chip fingerprint sensors (06cb:009a and friends)"
+license = "MIT"
+repository = "https://github.com/bisand/validity-rs"
+
+[dependencies]
+rusb = "0.9"
+hmac = "0.12"
+sha2 = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["std"] }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+rand = "0.8"
+anyhow = "1"
+hex = "0.4"
+
