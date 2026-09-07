@@ -10,6 +10,7 @@ pub mod capture;
 pub mod crypto;
 pub mod db;
 pub mod device;
+pub mod enroll;
 pub mod init;
 pub mod flash;
 pub mod pairing;

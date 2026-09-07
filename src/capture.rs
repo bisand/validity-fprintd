@@ -459,7 +459,7 @@ impl Calibration {
 }
 
 /// Wait for an interrupt on EP83, polling until `deadline`.
-fn wait_int(tls: &Tls, deadline: Instant) -> Result<Vec<u8>> {
+pub(crate) fn wait_int(tls: &Tls, deadline: Instant) -> Result<Vec<u8>> {
     loop {
         if let Some(b) = tls.usb().poll_interrupt(Duration::from_millis(100))? {
             return Ok(b);

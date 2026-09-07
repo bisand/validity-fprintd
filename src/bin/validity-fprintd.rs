@@ -59,7 +59,7 @@ impl Manager {
 struct DeviceState {
     /// The user whose fingerprints this claim is for.
     claimed_by: Option<String>,
-    verifying: bool,
+    busy: bool,
 }
 
 struct Device {
@@ -102,7 +102,7 @@ impl Device {
     async fn release(&self) -> zbus::fdo::Result<()> {
         let mut state = self.state.lock().await;
         state.claimed_by = None;
-        state.verifying = false;
+        state.busy = false;
         Ok(())
     }
 
@@ -125,11 +125,75 @@ impl Device {
         Err(zbus::fdo::Error::NotSupported("deleting enrolments is not implemented".into()))
     }
 
-    async fn enroll_start(&self, _finger_name: String) -> zbus::fdo::Result<()> {
-        Err(zbus::fdo::Error::NotSupported("enrolment is not implemented".into()))
+    /// Begin an enrolment. Progress arrives as `EnrollStatus` signals; the
+    /// sensor decides how many scans it needs, so the count is not known here.
+    async fn enroll_start(
+        &self,
+        #[zbus(signal_context)] ctxt: SignalContext<'_>,
+        finger_name: String,
+    ) -> zbus::fdo::Result<()> {
+        let mut state = self.state.lock().await;
+        let Some(user) = state.claimed_by.clone() else {
+            return Err(zbus::fdo::Error::Failed("device is not claimed".into()));
+        };
+        if state.busy {
+            return Err(zbus::fdo::Error::Failed("an operation is already running".into()));
+        }
+        state.busy = true;
+        drop(state);
+
+        // Clients may ask for "any"; the sensor needs a concrete finger.
+        let finger = if finger_name == "any" || finger_name.is_empty() {
+            "right-index-finger".to_string()
+        } else {
+            finger_name
+        };
+
+        let ctxt = ctxt.to_owned();
+        let shared = self.state.clone();
+        let slot = self.sensor.clone();
+
+        // The enrolment loop runs on a blocking thread, so stage events come
+        // back over a channel to be emitted as signals.
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Result<usize, String>>();
+
+        let stage_ctxt = ctxt.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = rx.recv().await {
+                let result = match ev {
+                    Ok(_) => "enroll-stage-passed",
+                    Err(_) => "enroll-retry-scan",
+                };
+                let _ = Device::enroll_status(&stage_ctxt, result, false).await;
+            }
+        });
+
+        tokio::spawn(async move {
+            let outcome = tokio::task::spawn_blocking(move || {
+                with_sensor(&slot, |s| {
+                    s.enroll(&user, &finger, FINGER_TIMEOUT, |stage, err| {
+                        let _ = tx.send(match err {
+                            Some(e) => Err(e.to_string()),
+                            None => Ok(stage),
+                        });
+                    })
+                })
+            })
+            .await;
+
+            let result = match outcome {
+                Ok(Ok(_)) => "enroll-completed",
+                _ => "enroll-failed",
+            };
+            let _ = Device::enroll_status(&ctxt, result, true).await;
+            shared.lock().await.busy = false;
+        });
+
+        Ok(())
     }
 
     async fn enroll_stop(&self) -> zbus::fdo::Result<()> {
+        self.state.lock().await.busy = false;
         Ok(())
     }
 
@@ -144,10 +208,10 @@ impl Device {
         let Some(user) = state.claimed_by.clone() else {
             return Err(zbus::fdo::Error::Failed("device is not claimed".into()));
         };
-        if state.verifying {
-            return Err(zbus::fdo::Error::Failed("a verification is already running".into()));
+        if state.busy {
+            return Err(zbus::fdo::Error::Failed("an operation is already running".into()));
         }
-        state.verifying = true;
+        state.busy = true;
         drop(state);
 
         let ctxt = ctxt.to_owned();
@@ -170,14 +234,14 @@ impl Device {
             };
 
             let _ = Device::verify_status(&ctxt, result, true).await;
-            shared.lock().await.verifying = false;
+            shared.lock().await.busy = false;
         });
 
         Ok(())
     }
 
     async fn verify_stop(&self) -> zbus::fdo::Result<()> {
-        self.state.lock().await.verifying = false;
+        self.state.lock().await.busy = false;
         Ok(())
     }
 

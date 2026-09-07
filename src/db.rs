@@ -6,7 +6,7 @@
 
 use crate::sid::{parse_identity, SidIdentity};
 use crate::usb::{check_status, Transport};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 /// The storage object name the Windows driver creates, which we reuse.
 pub const STORAGE_NAME: &str = "StgWindsor";
@@ -252,4 +252,116 @@ pub fn list_users(t: &mut impl Transport) -> Result<Vec<User>> {
         return Ok(Vec::new());
     };
     storage.users.iter().map(|u| get_user(t, u.dbid)).collect()
+}
+
+/// Record types.
+const RECORD_USER: u16 = 5;
+/// Requested finger type. The signed write-enable blob rewrites this to 0x6.
+const RECORD_FINGER_REQUESTED: u16 = 0xb;
+
+/// `0x47` — create a record. Writes to the sensor's record partition.
+pub fn new_record(
+    t: &mut impl Transport,
+    write_enable_blob: &[u8],
+    parent: u16,
+    kind: u16,
+    storage: u16,
+    data: &[u8],
+) -> Result<u16> {
+    // The reference implementation queries usage first; keep that ordering.
+    let _ = db_info(t)?;
+    crate::flash::write_enable(t, write_enable_blob)?;
+
+    let mut cmd = vec![0x47];
+    cmd.extend_from_slice(&parent.to_le_bytes());
+    cmd.extend_from_slice(&kind.to_le_bytes());
+    cmd.extend_from_slice(&storage.to_le_bytes());
+    cmd.extend_from_slice(&(data.len() as u16).to_le_bytes());
+    cmd.extend_from_slice(data);
+
+    let result = (|| -> Result<u16> {
+        let rsp = t.cmd(&cmd)?;
+        check_status(&rsp).context("creating database record")?;
+        if rsp.len() < 4 {
+            bail!("record creation reply too short");
+        }
+        Ok(rd16(&rsp, 2))
+    })();
+
+    // Commit regardless, so a failed write does not leave the database locked.
+    let cleanup = crate::flash::call_cleanups(t);
+    let recid = result?;
+    cleanup?;
+    Ok(recid)
+}
+
+/// `0x4a` with an identity — find a user by SID.
+pub fn lookup_user(t: &mut impl Transport, identity: &SidIdentity) -> Result<Option<User>> {
+    let Some(storage) = get_user_storage(t, STORAGE_NAME)? else {
+        return Ok(None);
+    };
+    let data = crate::sid::identity_to_bytes(identity);
+
+    let mut cmd = vec![0x4a];
+    cmd.extend_from_slice(&0u16.to_le_bytes());
+    cmd.extend_from_slice(&storage.dbid.to_le_bytes());
+    cmd.extend_from_slice(&(data.len() as u16).to_le_bytes());
+    cmd.extend_from_slice(&data);
+
+    let rsp = t.cmd(&cmd)?;
+    if rsp.len() >= 2 && rd16(&rsp, 0) == STATUS_NOT_FOUND {
+        return Ok(None);
+    }
+    check_status(&rsp)?;
+    Ok(Some(parse_user(&rsp[2..])?))
+}
+
+/// Create the storage object the Windows driver uses, if absent.
+pub fn ensure_user_storage(t: &mut impl Transport, write_enable_blob: &[u8]) -> Result<UserStorage> {
+    if let Some(s) = get_user_storage(t, STORAGE_NAME)? {
+        return Ok(s);
+    }
+    let mut name = STORAGE_NAME.as_bytes().to_vec();
+    name.push(0);
+    new_record(t, write_enable_blob, 1, 4, 3, &name)?;
+
+    get_user_storage(t, STORAGE_NAME)?
+        .ok_or_else(|| anyhow::anyhow!("storage object missing after creation"))
+}
+
+pub fn new_user(
+    t: &mut impl Transport,
+    write_enable_blob: &[u8],
+    identity: &SidIdentity,
+) -> Result<u16> {
+    let storage = ensure_user_storage(t, write_enable_blob)?;
+    let data = crate::sid::identity_to_bytes(identity);
+    new_record(t, write_enable_blob, storage.dbid, RECORD_USER, storage.dbid, &data)
+}
+
+pub fn new_finger(
+    t: &mut impl Transport,
+    write_enable_blob: &[u8],
+    user_dbid: u16,
+    template: &[u8],
+) -> Result<u16> {
+    let storage = ensure_user_storage(t, write_enable_blob)?;
+    new_record(t, write_enable_blob, user_dbid, RECORD_FINGER_REQUESTED, storage.dbid, template)
+}
+
+/// Map an fprintd finger name to its on-sensor subtype.
+pub fn finger_subtype(name: &str) -> Option<u16> {
+    Some(match name {
+        "right-thumb" => 1,
+        "right-index-finger" => 2,
+        "right-middle-finger" => 3,
+        "right-ring-finger" => 4,
+        "right-little-finger" => 5,
+        "left-thumb" => 6,
+        "left-index-finger" => 7,
+        "left-middle-finger" => 8,
+        "left-ring-finger" => 9,
+        "left-little-finger" => 10,
+        _ => return None,
+    })
 }

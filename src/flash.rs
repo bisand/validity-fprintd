@@ -150,3 +150,23 @@ pub fn read_flash_all(t: &mut impl Transport, partition: u8, start: u32, size: u
     out.truncate(size as usize);
     Ok(out)
 }
+
+/// Status meaning "nothing to commit", which is not an error.
+const STATUS_NOTHING_TO_COMMIT: u16 = 0x0491;
+
+/// Unlock the record database for writing.
+///
+/// The unlock is a vendor-signed blob, so it varies per device model and
+/// cannot be synthesised.
+pub fn write_enable(t: &mut impl Transport, blob: &[u8]) -> Result<()> {
+    check_status(&t.cmd(blob)?).context("enabling database writes")
+}
+
+/// Commit pending writes. Must follow every write, successful or not.
+pub fn call_cleanups(t: &mut impl Transport) -> Result<()> {
+    let rsp = t.cmd(&[0x1a])?;
+    if rsp.len() >= 2 && u16::from_le_bytes([rsp[0], rsp[1]]) == STATUS_NOTHING_TO_COMMIT {
+        return Ok(());
+    }
+    check_status(&rsp).context("committing database writes")
+}

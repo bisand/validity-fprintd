@@ -55,6 +55,8 @@ pub struct Sensor {
     tls: Tls,
     cfg: SensorConfig,
     calib: Calibration,
+    /// Vendor-signed blob that unlocks database writes on this model.
+    write_enable_blob: Vec<u8>,
 }
 
 impl Sensor {
@@ -63,11 +65,16 @@ impl Sensor {
         let mut usb = Usb::open_first()?;
         usb.trace = trace;
 
+        let (vid, pid) = (usb.vid, usb.pid);
+        let write_enable_blob = crate::blobs::blobs_for(vid, pid)
+            .ok_or_else(|| anyhow::anyhow!("no blobs for {vid:04x}:{pid:04x}"))?
+            .db_write_enable();
+
         let (mut tls, _) = open_session(Arc::new(usb))?;
         let cfg = SensorConfig::probe(&mut tls)?;
         let calib = Calibration::load_or_calibrate(&mut tls, &cfg)?;
 
-        Ok(Self { tls, cfg, calib })
+        Ok(Self { tls, cfg, calib, write_enable_blob })
     }
 
     pub fn device_name(&self) -> &str {
@@ -112,6 +119,30 @@ impl Sensor {
 
         let _ = glow_end_scan(&mut self.tls);
         Ok(outcome)
+    }
+
+    /// Enrol a finger for `username`, reporting progress through `on_stage`.
+    pub fn enroll(
+        &mut self,
+        username: &str,
+        finger: &str,
+        timeout: Duration,
+        on_stage: impl FnMut(usize, Option<&str>),
+    ) -> Result<u16> {
+        let sid = sid_for_user(username)?;
+        let subtype = crate::db::finger_subtype(finger)
+            .ok_or_else(|| anyhow::anyhow!("unknown finger name: {finger}"))?;
+
+        crate::enroll::enroll(
+            &mut self.tls,
+            &self.calib,
+            &self.cfg,
+            &self.write_enable_blob,
+            &sid,
+            subtype,
+            timeout,
+            on_stage,
+        )
     }
 
     /// Reboot the sensor to release its session context. Only on shutdown:
