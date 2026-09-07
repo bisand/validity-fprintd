@@ -89,6 +89,20 @@ cargo build --release
 
 ## Installing
 
+### From the AUR
+
+```sh
+yay -S validity-fprintd-git
+sudo systemctl mask --now fprintd.service
+sudo systemctl enable --now validity-fprintd.service
+```
+
+Masking `fprintd` is required: both claim the `net.reactivated.Fprint` D-Bus
+name, and masking also prevents D-Bus activating it. The package conflicts with
+`python-validity` and `open-fprintd` for the same reason.
+
+### From source
+
 ```sh
 cargo build --release
 sudo ./scripts/install.sh
