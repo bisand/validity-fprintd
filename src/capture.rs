@@ -422,12 +422,108 @@ impl Calibration {
         Ok(chunks)
     }
 
+    /// Patch the capture program for the requested mode (type-2 sensors).
+    ///
+    /// Simpler than the type-1 path: the timeslot table is patched in place
+    /// rather than having its head replaced, the factory values are sent
+    /// verbatim instead of bit-packed, and everything goes in one chunk.
+    ///
+    /// UNTESTED: no type-2 hardware was available. Transcribed from the
+    /// reference implementation.
+    fn line_update_type_2(
+        &self,
+        mode: CaptureMode,
+        mut chunks: Vec<Chunk>,
+        cfg: &SensorConfig,
+    ) -> Result<Vec<Chunk>> {
+        const T2_IDENTIFY_4E: &str = "fbb20f0000000f00300000006001020040010a00018000000a0200000b1900008813b80b01091000";
+        const T2_IDENTIFY_2E: &str = "0200180002000000900090004d01000090017c013c323232640a0201";
+        const T2_ENROLL_26: &str = "fbb20f0000000f00300000006001020040010a00018000000a0200000b19000050c360ea01091000";
+        const T2_ENROLL_2E: &str = "0200180023000000900090004d01000090017c013c323232640a0201";
+        /// Second calibration register, used only by this path.
+        const REG_CALIBRATION_ALT: u32 = 0x8000_20fc;
+
+        let mut tst = Vec::new();
+        for c in chunks.iter_mut() {
+            if c.kind != CHUNK_TIMESLOT_TABLE {
+                continue;
+            }
+            let mut patched =
+                Self::patch_timeslot_table(&c.body, true, cfg.type_info.repeat_multiplier);
+            if mode != CaptureMode::Calibrate {
+                patched = self.patch_timeslot_again(&patched, cfg)?;
+            }
+            tst = patched.clone();
+            c.body = patched;
+        }
+
+        if tst.is_empty() {
+            bail!("capture program has no timeslot table chunk");
+        }
+
+        chunks.push(Chunk { kind: CHUNK_REPLY_CONFIG, body: Vec::new() });
+
+        match mode {
+            CaptureMode::Identify => {
+                chunks.push(Chunk { kind: CHUNK_WTF_4E, body: hex::decode(T2_IDENTIFY_4E)? });
+                chunks.push(Chunk { kind: CHUNK_IMAGE_RECON, body: hex::decode(T2_IDENTIFY_2E)? });
+            }
+            CaptureMode::Enroll => {
+                chunks.push(Chunk { kind: CHUNK_FINGER_DETECT, body: hex::decode(T2_ENROLL_26)? });
+                chunks.push(Chunk { kind: CHUNK_IMAGE_RECON, body: hex::decode(T2_ENROLL_2E)? });
+            }
+            CaptureMode::Calibrate => {}
+        }
+
+        let factory_calib_data = cfg.factory_calib_data.clone().ok_or_else(|| {
+            anyhow::anyhow!("type-2 capture needs factory calibration data (subtag 7), which this sensor did not report")
+        })?;
+
+        // Each entry anchors a data blob to an instruction in the timeslot table.
+        let anchors: [(Option<(usize, usize)>, Vec<u8>); 3] = [
+            (find_nth_insn(&tst, 6, 2)?, hex::decode(cfg.type_info.calibration_blob)?),
+            (find_nth_regwrite(&tst, REG_CALIBRATION_ALT, 1)?, factory_calib_data),
+            (find_nth_regwrite(&tst, REG_CALIBRATION, 1)?, cfg.factory_calibration_values.clone()),
+        ];
+
+        let mut lines = Vec::with_capacity(anchors.len());
+        for (anchor, data) in anchors {
+            let (pc, _) = anchor
+                .ok_or_else(|| anyhow::anyhow!("timeslot table is missing an expected anchor"))?;
+            let mut data = data;
+            let pad = data.len() % 4;
+            if pad > 0 {
+                data.resize(data.len() + (4 - pad), 0);
+            }
+            lines.push(Line {
+                mask: 0xff,
+                flags: (pc as u32 + 1) | 0x0300_0000,
+                data,
+                ..Default::default()
+            });
+        }
+
+        let mut line_update = (lines.len() as u32).to_le_bytes().to_vec();
+        for l in &lines {
+            line_update.extend_from_slice(&l.mask.to_le_bytes());
+            line_update.extend_from_slice(&l.flags.to_le_bytes());
+        }
+        for l in &lines {
+            line_update.extend_from_slice(&l.data);
+        }
+        chunks.push(Chunk { kind: CHUNK_LINE_UPDATE, body: line_update });
+
+        Ok(chunks)
+    }
+
     /// Build the `0x02` capture command for a mode.
     pub fn build_cmd_02(&self, mode: CaptureMode, cfg: &SensorConfig) -> Result<Vec<u8>> {
-        if !cfg.line_update_type1 {
-            bail!("only the type-1 line update path is implemented");
-        }
-        let chunks = self.line_update_type_1(mode, split_chunks(&cfg.capture_prog)?, cfg)?;
+        let program = split_chunks(&cfg.capture_prog)?;
+        let chunks = if cfg.line_update_type1 {
+            self.line_update_type_1(mode, program, cfg)?
+        } else {
+            self.line_update_type_2(mode, program, cfg)?
+        };
 
         let req_lines: u16 = if mode == CaptureMode::Calibrate {
             (cfg.calibration_frames * cfg.lines_per_frame + 1) as u16

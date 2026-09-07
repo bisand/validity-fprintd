@@ -8,36 +8,52 @@ Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
 
 ## Status
 
-Working, verified against real hardware. Enrols, verifies, and authenticates
-sudo, polkit and the lock screen through the stock `pam_fprintd`.
+Working and verified against real hardware on a ThinkPad X1 Carbon 6th gen
+(`06cb:009a`): it enrols, verifies, and authenticates sudo, polkit and the
+lock screen through the stock `pam_fprintd`.
 
 | Capability | Status |
 |---|---|
-| USB transport, signed init handshake | Working |
-| Pairing-record parsing, host key derivation, sensor authentication | Working |
-| Encrypted session (the firmware's TLS 1.2 dialect) | Working |
-| Flash access, on-chip enrolment database (read and write) | Working |
-| Sensor identification, calibration, image capture | Working |
-| On-chip matching | Working |
-| Enrolment and deletion of fingers | Working |
-| `fprintd`-compatible D-Bus daemon | Working |
-| Provisioning an unprovisioned sensor | Not implemented |
+| USB transport, signed init handshake | Verified |
+| Pairing-record parsing, host key derivation, sensor authentication | Verified |
+| Encrypted session (the firmware's TLS 1.2 dialect) | Verified |
+| Flash access, on-chip enrolment database (read and write) | Verified |
+| Sensor identification, calibration, image capture | Verified |
+| On-chip matching, enrolment, deletion | Verified |
+| `fprintd`-compatible D-Bus daemon | Verified |
+| Calibration baseline: read, verify, encode | Verified |
+| Calibration baseline: write | **Untested** |
+| Firmware extension upload | **Untested** |
+| Flash partitioning and pairing (`init-flash`) | **Untested** |
+| Factory reset | **Untested** |
+| Type-2 sensor capture path | **Untested** |
 
-### What is not implemented
+### What "untested" means here
 
-The driver uses a sensor that is already provisioned. It does not perform
-factory reset, firmware upload, flash partitioning, or write the calibration
-baseline. In practice that means:
+Everything marked untested was developed against a sensor that was **already
+provisioned**, so those paths never had to run. They are transcribed from the
+reference implementation and compile, but no hardware has executed them.
 
-- A sensor previously used with **Windows Hello**, or with python-validity,
-  is already provisioned and should work. Pairing keys derive from the
-  machine's DMI identity, which is the same under either OS, so a
+The baseline encoder is the exception worth calling out: it is validated by
+re-encoding the record already in flash and checking it reproduces byte for
+byte (`validity-baseline` does this on every run), so the encoding is known
+correct even though the write itself has not been exercised.
+
+Treat factory reset especially carefully. It erases the pairing record and
+every enrolment, and recovery depends on provisioning paths that have never
+been proven. If your sensor currently works, there is no reason to run it.
+
+### Which sensors this works with today
+
+- A sensor previously used with **Windows Hello**, or with python-validity, is
+  already provisioned and should work directly. Pairing keys derive from the
+  machine's DMI identity, which is identical under either OS, so a
   Windows-paired sensor opens fine on the same laptop.
-- A **factory-fresh** sensor, or one that has been factory reset, will report
-  `UNPAIRED` from `validity-probe` and cannot be used yet.
+- A **factory-fresh** sensor reports `UNPAIRED` and needs the provisioning
+  paths above, which are untested.
 
-Only sensor type `0x199` and the type-1 capture path are implemented. Type-2
-sensors are recognised but will refuse to capture.
+Only sensor type `0x199` has been exercised. The type-2 capture path is
+implemented but has never run.
 
 ## Supported devices
 
@@ -85,15 +101,38 @@ sudo ./scripts/uninstall.sh
 
 ## Tools
 
-All of these are read-only except where noted.
+Read-only unless noted.
 
 ```sh
-sudo validity-probe     # device, firmware, flash layout and pairing state
-sudo validity-session   # open an encrypted session, read the partition table back
-sudo validity-db        # storage objects, users and enrolled fingers
-sudo validity-sensor    # sensor identity, geometry, capture-program selection
-sudo validity-verify    # calibrate, capture a fingerprint and match it on-chip
+sudo validity-probe      # device, firmware, flash layout and pairing state
+sudo validity-session    # open an encrypted session, read the partition table back
+sudo validity-db         # storage objects, users and enrolled fingers
+sudo validity-sensor     # sensor identity, geometry, capture-program selection
+sudo validity-verify     # calibrate, capture a fingerprint and match it on-chip
+sudo validity-baseline   # inspect and verify the calibration baseline
+sudo validity-firmware   # inspect the firmware extension
+sudo validity-provision  # report provisioning state
 ```
+
+The daemon holds the USB interface, so stop it first:
+
+```sh
+sudo systemctl stop validity-fprintd
+sudo validity-probe
+sudo systemctl start validity-fprintd
+```
+
+Writing variants, for unprovisioned sensors only:
+
+```sh
+sudo validity-baseline --write          # capture and store a calibration baseline
+sudo validity-firmware --upload         # install firmware (see fetch-firmware.sh)
+sudo validity-provision --init-flash    # partition flash and pair to this machine
+sudo validity-provision --factory-reset # DESTRUCTIVE, erases everything
+```
+
+The firmware blob is proprietary and cannot be shipped. `scripts/fetch-firmware.sh`
+downloads Lenovo's driver installer, verifies its SHA-512, and extracts it.
 
 Root is required for raw USB access and to read `/sys/class/dmi/id/product_serial`,
 which the pairing keys derive from. Pass `--trace` for a hex dump of the wire

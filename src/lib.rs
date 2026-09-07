@@ -16,6 +16,8 @@ pub mod init;
 pub mod firmware;
 pub mod flash;
 pub mod pairing;
+pub mod provision;
+pub mod provision_blobs;
 pub mod sensor;
 pub mod sid;
 pub mod tables;

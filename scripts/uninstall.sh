@@ -20,7 +20,7 @@ rm -f /etc/udev/rules.d/70-validity-rs.rules
 
 echo "--- removing binaries and rules ---"
 rm -f /usr/local/bin/validity-fprintd
-for tool in validity-probe validity-session validity-db validity-sensor validity-verify validity-baseline validity-firmware; do
+for tool in validity-probe validity-session validity-db validity-sensor validity-verify validity-baseline validity-firmware validity-provision; do
     rm -f "/usr/local/bin/$tool"
 done
 rm -f /etc/udev/rules.d/70-validity-fprintd.rules

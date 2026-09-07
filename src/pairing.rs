@@ -178,16 +178,12 @@ pub fn build_material(blocks: &[FlashBlock], keys: &HostKeys) -> Result<Material
         .find(|b| b.id == BLOCK_ECDH)
         .ok_or_else(|| anyhow::anyhow!("pairing record has no ECDH block"))?;
 
+    let ecdh_public = ecdh_public_from_block(&ecdh.body)?;
+
     if ecdh.body.len() < 0x90 {
         bail!("ECDH block is truncated ({} bytes)", ecdh.body.len());
     }
     let (key_blob, sig_blob) = ecdh.body.split_at(0x90);
-
-    // Coordinates sit at fixed offsets inside the key structure, little-endian.
-    let point = point_from_le(&key_blob[0x08..0x28], &key_blob[0x4c..0x6c])?;
-    let ecdh_public = Option::<p256::PublicKey>::from(p256::PublicKey::from_encoded_point(&point))
-        .ok_or_else(|| anyhow::anyhow!("ECDH block does not describe a point on P-256"))?;
-
     let firmware_signature_valid = verify_fw_signature(key_blob, sig_blob).unwrap_or(false);
 
     Ok(Material { private_key_d, tls_cert, ecdh_public, firmware_signature_valid })
@@ -213,4 +209,16 @@ fn verify_fw_signature(key_blob: &[u8], sig_blob: &[u8]) -> Result<bool> {
 
     let Ok(sig) = p256::ecdsa::Signature::from_der(der) else { return Ok(false) };
     Ok(vk.verify(key_blob, &sig).is_ok())
+}
+
+/// Extract the sensor's static ECDH public point from a block-6 body.
+///
+/// Coordinates sit at fixed offsets inside the key structure, little-endian.
+pub fn ecdh_public_from_block(body: &[u8]) -> Result<p256::PublicKey> {
+    if body.len() < 0x90 {
+        bail!("ECDH block is truncated ({} bytes)", body.len());
+    }
+    let point = point_from_le(&body[0x08..0x28], &body[0x4c..0x6c])?;
+    Option::<p256::PublicKey>::from(p256::PublicKey::from_encoded_point(&point))
+        .ok_or_else(|| anyhow::anyhow!("ECDH block does not describe a point on P-256"))
 }
