@@ -13,7 +13,7 @@ BIN="$ROOT/target/release/validity-fprintd"
 
 echo "--- installing binary ---"
 install -Dm755 "$BIN" /usr/local/bin/validity-fprintd
-for tool in validity-probe validity-session validity-db validity-sensor validity-verify; do
+for tool in validity-probe validity-session validity-db validity-sensor validity-verify validity-baseline validity-firmware; do
     [ -x "$ROOT/target/release/$tool" ] && install -Dm755 "$ROOT/target/release/$tool" "/usr/local/bin/$tool"
 done
 

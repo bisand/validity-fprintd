@@ -13,6 +13,7 @@ pub mod db;
 pub mod device;
 pub mod enroll;
 pub mod init;
+pub mod firmware;
 pub mod flash;
 pub mod pairing;
 pub mod sensor;
