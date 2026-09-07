@@ -89,17 +89,30 @@ cargo build --release
 
 ## Installing
 
-### From the AUR
+### Building the Arch package
+
+The `-git` PKGBUILD lives in this repository, so no AUR account is needed:
 
 ```sh
-yay -S validity-fprintd-git
+git clone https://github.com/bisand/validity-fprintd.git
+cd validity-fprintd/packaging/aur
+makepkg -si
+```
+
+Then enable it. Masking `fprintd` is required — both claim the
+`net.reactivated.Fprint` D-Bus name, and masking also stops D-Bus activating
+it:
+
+```sh
 sudo systemctl mask --now fprintd.service
 sudo systemctl enable --now validity-fprintd.service
 ```
 
-Masking `fprintd` is required: both claim the `net.reactivated.Fprint` D-Bus
-name, and masking also prevents D-Bus activating it. The package conflicts with
-`python-validity` and `open-fprintd` for the same reason.
+The package conflicts with `python-validity` and `open-fprintd` for the same
+reason.
+
+An AUR submission (`validity-fprintd-git`) is planned; AUR account registration
+is paused upstream at the time of writing.
 
 ### From source
 

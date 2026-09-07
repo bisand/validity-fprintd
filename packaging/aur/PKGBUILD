@@ -1,6 +1,6 @@
 # Maintainer: André Biseth <andre@biseth.net>
 pkgname=validity-fprintd-git
-pkgver=r16.ade6805
+pkgver=r21.4f6a25b
 pkgrel=1
 pkgdesc="Rust fingerprint driver and fprintd-compatible daemon for Synaptics/Validity match-on-chip sensors"
 arch=('x86_64' 'aarch64')
