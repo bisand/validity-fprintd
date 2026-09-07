@@ -1,0 +1,63 @@
+_notice() {
+    cat <<'EOF'
+
+validity-fprintd is installed but not yet active.
+
+It replaces fprintd: both claim the net.reactivated.Fprint D-Bus name and
+cannot run at the same time. Masking fprintd also stops D-Bus activating it
+behind your back.
+
+  sudo systemctl mask --now fprintd.service
+  sudo systemctl enable --now validity-fprintd.service
+
+Check that your sensor is recognised and provisioned:
+
+  sudo systemctl stop validity-fprintd
+  sudo validity-provision
+  sudo systemctl start validity-fprintd
+
+If it reports unformatted flash or an unpaired sensor, see "Provisioning a
+bare sensor" in /usr/share/doc/validity-fprintd-git/README.md. A sensor that
+has been used with Windows Hello is already provisioned and needs none of it.
+
+To configure authentication:
+
+  omarchy setup security fingerprint          # on Omarchy
+
+Elsewhere, add "auth sufficient pam_fprintd.so" to the relevant files in
+/etc/pam.d/. Keep it "sufficient" so a failed or unavailable finger falls
+through to your password.
+
+EOF
+}
+
+post_install() {
+    _notice
+}
+
+post_upgrade() {
+    if systemctl is-active --quiet validity-fprintd.service; then
+        systemctl restart validity-fprintd.service || true
+    fi
+}
+
+pre_remove() {
+    systemctl disable --now validity-fprintd.service 2>/dev/null || true
+}
+
+post_remove() {
+    cat <<'EOF'
+
+validity-fprintd removed. If you masked fprintd for it, restore it with:
+
+  sudo systemctl unmask fprintd.service
+
+Fingerprint PAM rules are left untouched. If nothing else provides
+pam_fprintd, remove them so authentication does not point at a missing
+service (on Omarchy: omarchy-remove-security-fingerprint).
+
+Sensor state - pairing, enrolments, calibration - lives in the sensor itself
+and is unaffected. The host-side calibration cache is /var/lib/validity-fprintd.
+
+EOF
+}

@@ -1,0 +1,63 @@
+# Maintainer: André Biseth <andre@biseth.net>
+pkgname=validity-fprintd-git
+pkgver=r16.ade6805
+pkgrel=1
+pkgdesc="Rust fingerprint driver and fprintd-compatible daemon for Synaptics/Validity match-on-chip sensors"
+arch=('x86_64' 'aarch64')
+url="https://github.com/bisand/validity-fprintd"
+license=('MIT')
+depends=('dbus' 'libusb')
+makedepends=('git' 'cargo')
+optdepends=(
+    'fprintd: client tools (fprintd-enroll, fprintd-verify) and pam_fprintd'
+    'innoextract: required to extract firmware for an unprovisioned sensor'
+    'curl: required by fetch-firmware.sh'
+)
+# Both claim the net.reactivated.Fprint bus name and cannot run together.
+conflicts=('python-validity' 'open-fprintd')
+provides=('validity-fprintd')
+install="${pkgname}.install"
+source=("git+https://github.com/bisand/validity-fprintd.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$srcdir/validity-fprintd"
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+    cd "$srcdir/validity-fprintd"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$srcdir/validity-fprintd"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release --all-features
+}
+
+package() {
+    cd "$srcdir/validity-fprintd"
+
+    install -Dm755 "target/release/validity-fprintd" "$pkgdir/usr/bin/validity-fprintd"
+    for tool in probe session db sensor verify baseline firmware provision; do
+        install -Dm755 "target/release/validity-$tool" "$pkgdir/usr/bin/validity-$tool"
+    done
+
+    # The shipped unit points at /usr/local/bin, where scripts/install.sh puts
+    # the binary. A packaged build lives in /usr/bin instead.
+    sed 's|/usr/local/bin/|/usr/bin/|' "packaging/validity-fprintd.service" \
+        > "$srcdir/validity-fprintd.service"
+    install -Dm644 "$srcdir/validity-fprintd.service" \
+        "$pkgdir/usr/lib/systemd/system/validity-fprintd.service"
+    install -Dm644 "udev/70-validity-fprintd.rules" \
+        "$pkgdir/usr/lib/udev/rules.d/70-validity-fprintd.rules"
+
+    install -Dm755 "scripts/fetch-firmware.sh" \
+        "$pkgdir/usr/share/validity-fprintd/fetch-firmware.sh"
+
+    install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
