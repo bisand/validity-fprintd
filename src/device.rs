@@ -70,8 +70,12 @@ impl Sensor {
             .ok_or_else(|| anyhow::anyhow!("no blobs for {vid:04x}:{pid:04x}"))?
             .db_write_enable();
 
-        let (mut tls, _) = open_session(Arc::new(usb))?;
+        let (mut tls, signature_valid) = open_session(Arc::new(usb))?;
+        if !signature_valid {
+            eprintln!("warning: sensor firmware signature did not verify");
+        }
         let cfg = SensorConfig::probe(&mut tls)?;
+        eprintln!("session: opened with {} (type {:#06x})", cfg.device_name, cfg.sensor_type);
         let calib = Calibration::load_or_calibrate(&mut tls, &cfg)?;
 
         Ok(Self { tls, cfg, calib, write_enable_blob })
@@ -118,6 +122,11 @@ impl Sensor {
         };
 
         let _ = glow_end_scan(&mut self.tls);
+        match &outcome {
+            VerifyOutcome::Match { finger } => eprintln!("verify: {username} matched {finger}"),
+            VerifyOutcome::NoMatch => eprintln!("verify: {username} no match"),
+            VerifyOutcome::Retry(e) => eprintln!("verify: {username} unusable scan: {e}"),
+        }
         Ok(outcome)
     }
 

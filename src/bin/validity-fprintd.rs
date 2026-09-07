@@ -32,11 +32,18 @@ fn with_sensor<T>(
 ) -> anyhow::Result<T> {
     let mut guard = slot.lock().expect("sensor mutex poisoned");
     if guard.is_none() {
-        *guard = Some(Sensor::open(false)?);
+        match Sensor::open(false) {
+            Ok(s) => *guard = Some(s),
+            Err(e) => {
+                eprintln!("error: could not open the sensor: {e:#}");
+                return Err(e);
+            }
+        }
     }
 
     let result = f(guard.as_mut().expect("session just opened"));
-    if result.is_err() {
+    if let Err(e) = &result {
+        eprintln!("error: operation failed, dropping the session: {e:#}");
         *guard = None;
     }
     result
@@ -109,7 +116,9 @@ impl Device {
             }
         }
 
-        state.claimed_by = Some(resolve_user(conn, sender.as_deref(), &username).await?);
+        let user = resolve_user(conn, sender.as_deref(), &username).await?;
+        eprintln!("claim: {user}");
+        state.claimed_by = Some(user);
         state.claim_owner = sender;
         state.busy = false;
         Ok(())
@@ -117,6 +126,9 @@ impl Device {
 
     async fn release(&self) -> zbus::fdo::Result<()> {
         let mut state = self.state.lock().await;
+        if let Some(user) = &state.claimed_by {
+            eprintln!("release: {user}");
+        }
         state.claimed_by = None;
         state.claim_owner = None;
         state.busy = false;
@@ -220,9 +232,15 @@ impl Device {
         });
 
         tokio::spawn(async move {
+            eprintln!("enroll: starting {finger} for {user}");
+            let started = std::time::Instant::now();
             let outcome = tokio::task::spawn_blocking(move || {
                 with_sensor(&slot, |s| {
                     s.enroll(&user, &finger, FINGER_TIMEOUT, |stage, err| {
+                        match err {
+                            Some(e) => eprintln!("enroll: stage {stage} rejected: {e}"),
+                            None => eprintln!("enroll: stage {stage} accepted"),
+                        }
                         let _ = tx.send(match err {
                             Some(e) => Err(e.to_string()),
                             None => Ok(stage),
@@ -233,9 +251,20 @@ impl Device {
             .await;
 
             let result = match outcome {
-                Ok(Ok(_)) => "enroll-completed",
-                _ => "enroll-failed",
+                Ok(Ok(recid)) => {
+                    eprintln!("enroll: stored as record {recid}");
+                    "enroll-completed"
+                }
+                Ok(Err(e)) => {
+                    eprintln!("enroll: failed: {e:#}");
+                    "enroll-failed"
+                }
+                Err(e) => {
+                    eprintln!("enroll: task failed: {e}");
+                    "enroll-failed"
+                }
             };
+            eprintln!("enroll: {result} after {:.1}s", started.elapsed().as_secs_f32());
             let _ = Device::enroll_status(&ctxt, result, true).await;
             shared.lock().await.busy = false;
         });
@@ -270,6 +299,8 @@ impl Device {
         let slot = self.sensor.clone();
 
         tokio::spawn(async move {
+            eprintln!("verify: starting for {user} (finger: {finger_name})");
+            let started = std::time::Instant::now();
             let _ = Device::verify_finger_selected(&ctxt, &finger_name).await;
 
             let outcome = tokio::task::spawn_blocking(move || {
@@ -283,6 +314,7 @@ impl Device {
                 Ok(Ok(VerifyOutcome::Retry(_))) => "verify-retry-scan",
                 Ok(Err(_)) | Err(_) => "verify-unknown-error",
             };
+            eprintln!("verify: {result} after {:.1}s", started.elapsed().as_secs_f32());
 
             let _ = Device::verify_status(&ctxt, result, true).await;
             shared.lock().await.busy = false;

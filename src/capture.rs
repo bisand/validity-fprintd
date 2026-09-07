@@ -696,10 +696,13 @@ impl Calibration {
     /// Use cached calibration if available, otherwise calibrate and cache it.
     pub fn load_or_calibrate(tls: &mut Tls, cfg: &SensorConfig) -> Result<Self> {
         if let Some(c) = Self::load(cfg) {
+            eprintln!("calibration: loaded {} bytes from cache", c.calib_data.len());
             return Ok(c);
         }
+        eprintln!("calibration: no usable cache, running {} iterations", cfg.calibration_iterations);
         let mut c = Self::default();
         c.calibrate(tls, cfg)?;
+        eprintln!("calibration: complete, {} bytes", c.calib_data.len());
         // A cache write failure is not fatal; it only costs time next run.
         let _ = c.save();
         Ok(c)
