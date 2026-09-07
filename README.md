@@ -9,8 +9,8 @@ Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
 ## Status
 
 Working and verified against real hardware on a ThinkPad X1 Carbon 6th gen
-(`06cb:009a`): it enrols, verifies, and authenticates sudo, polkit and the
-lock screen through the stock `pam_fprintd`.
+(`06cb:009a`). It provisions a bare sensor, enrols, verifies, and authenticates
+sudo, polkit and the lock screen through the stock `pam_fprintd`.
 
 | Capability | Status |
 |---|---|
@@ -21,39 +21,54 @@ lock screen through the stock `pam_fprintd`.
 | Sensor identification, calibration, image capture | Verified |
 | On-chip matching, enrolment, deletion | Verified |
 | `fprintd`-compatible D-Bus daemon | Verified |
-| Calibration baseline: read, verify, encode | Verified |
-| Calibration baseline: write | **Untested** |
-| Firmware extension upload | **Untested** |
-| Flash partitioning and pairing (`init-flash`) | **Untested** |
-| Factory reset | **Untested** |
+| Calibration baseline: read, verify, encode, write | Verified |
+| Firmware extension upload | Verified |
+| Flash partitioning and pairing (`--init-flash`) | Verified |
+| Factory reset | Verified |
 | Type-2 sensor capture path | **Untested** |
 
-### What "untested" means here
+The whole provisioning chain was exercised by factory-resetting a working
+sensor and rebuilding it from nothing: partition table, firmware, pairing
+record, calibration baseline and enrolments, ending in a working fingerprint
+`sudo`. Every step is reproducible with the tools below.
 
-Everything marked untested was developed against a sensor that was **already
-provisioned**, so those paths never had to run. They are transcribed from the
-reference implementation and compile, but no hardware has executed them.
+The type-2 capture path remains untested because no type-2 hardware was
+available. It is transcribed from the reference implementation and compiles,
+but has never run. Type-2 sensors will also refuse to capture unless the
+sensor reports factory calibration data (subtag 7), which type-1 sensors do
+not provide.
 
-The baseline encoder is the exception worth calling out: it is validated by
-re-encoding the record already in flash and checking it reproduces byte for
-byte (`validity-baseline` does this on every run), so the encoding is known
-correct even though the write itself has not been exercised.
+### Which sensors this works with
 
-Treat factory reset especially carefully. It erases the pairing record and
-every enrolment, and recovery depends on provisioning paths that have never
-been proven. If your sensor currently works, there is no reason to run it.
+- A sensor already provisioned — used with **Windows Hello** or python-validity
+  — works directly. Pairing keys derive from the machine's DMI identity, which
+  is identical under either OS, so a Windows-paired sensor opens fine on the
+  same laptop.
+- A **factory-fresh or reset** sensor can be provisioned from scratch; see
+  below. This needs the firmware blob from Lenovo's driver installer.
 
-### Which sensors this works with today
+Only sensor type `0x199` has been exercised on hardware.
 
-- A sensor previously used with **Windows Hello**, or with python-validity, is
-  already provisioned and should work directly. Pairing keys derive from the
-  machine's DMI identity, which is identical under either OS, so a
-  Windows-paired sensor opens fine on the same laptop.
-- A **factory-fresh** sensor reports `UNPAIRED` and needs the provisioning
-  paths above, which are untested.
+## Provisioning a bare sensor
 
-Only sensor type `0x199` has been exercised. The type-2 capture path is
-implemented but has never run.
+Needed only if `validity-provision` reports unformatted flash or an unpaired
+sensor. Get the firmware first, since the sensor cannot capture without it:
+
+```sh
+sudo ./scripts/fetch-firmware.sh              # download and extract from Lenovo
+sudo validity-provision --init-flash          # partition flash, pair to this machine
+sudo validity-firmware --upload               # install the firmware extension
+sudo validity-baseline --write                # capture the calibration baseline
+omarchy setup security fingerprint            # enrol and configure PAM
+```
+
+Stop the daemon first (`sudo systemctl stop validity-fprintd`), since it holds
+the USB interface.
+
+`validity-provision --factory-reset` returns a sensor to its bare state. It
+erases the pairing record, every enrolment and the calibration baseline, and
+requires a typed confirmation. There is no reason to run it on a working
+sensor.
 
 ## Supported devices
 
