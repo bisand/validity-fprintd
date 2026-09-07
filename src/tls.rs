@@ -89,6 +89,11 @@ impl<'a> Tls<'a> {
         }
     }
 
+    /// The underlying transport, for bulk and interrupt endpoint access.
+    pub fn usb(&self) -> &'a Usb {
+        self.usb
+    }
+
     /// Send a command, encrypting it once the session is up.
     pub fn cmd(&mut self, cmd: &[u8]) -> Result<Vec<u8>> {
         if self.secure_tx && self.secure_rx {

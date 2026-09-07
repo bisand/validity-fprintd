@@ -125,6 +125,21 @@ impl Usb {
         Ok(buf)
     }
 
+    /// Poll EP83 once. `Ok(None)` means the poll timed out, which is normal
+    /// while waiting for a finger and must not be treated as an error.
+    pub fn poll_interrupt(&self, timeout: Duration) -> Result<Option<Vec<u8>>> {
+        let mut buf = vec![0u8; 1024];
+        match self.handle.read_interrupt(EP_INTERRUPT_IN, &mut buf, timeout) {
+            Ok(n) => {
+                buf.truncate(n);
+                self.trace("<int<", &buf);
+                Ok(Some(buf))
+            }
+            Err(rusb::Error::Timeout) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Wait for a finger-presence interrupt on EP83.
     pub fn wait_interrupt(&self, timeout: Duration) -> Result<Vec<u8>> {
         let mut buf = vec![0u8; 1024];

@@ -6,11 +6,15 @@
 //! reverse-engineering work of the python-validity project (MIT).
 
 pub mod blobs;
+pub mod capture;
 pub mod crypto;
 pub mod db;
 pub mod init;
 pub mod flash;
 pub mod pairing;
+pub mod sensor;
 pub mod sid;
+pub mod tables;
+pub mod timeslot;
 pub mod tls;
 pub mod usb;

@@ -137,3 +137,16 @@ pub fn read_flash(t: &mut impl Transport, partition: u8, addr: u32, size: u32) -
 pub fn read_tls_flash(t: &mut impl Transport) -> Result<Vec<u8>> {
     read_flash(t, PARTITION_TLS, 0, TLS_FLASH_SIZE)
 }
+
+/// Read a span from a partition in 4 KiB requests.
+pub fn read_flash_all(t: &mut impl Transport, partition: u8, start: u32, size: u32) -> Result<Vec<u8>> {
+    const BS: u32 = 0x1000;
+    let mut out = Vec::with_capacity(size as usize);
+    let mut addr = start;
+    while addr < start + size {
+        out.extend_from_slice(&read_flash(t, partition, addr, BS)?);
+        addr += BS;
+    }
+    out.truncate(size as usize);
+    Ok(out)
+}
