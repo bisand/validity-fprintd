@@ -3,15 +3,15 @@
 //! Read-only: identification and factory-calibration reads only.
 
 use anyhow::Result;
-use validity_rs::init::{open_session, reboot};
-use validity_rs::sensor::SensorConfig;
-use validity_rs::tables::flash_ic_lookup;
-use validity_rs::timeslot::{split_chunks, CHUNK_TIMESLOT_OFFSET, CHUNK_TIMESLOT_TABLE};
-use validity_rs::usb::{device_name, Usb};
+use validity_fprintd::init::{open_session, reboot};
+use validity_fprintd::sensor::SensorConfig;
+use validity_fprintd::tables::flash_ic_lookup;
+use validity_fprintd::timeslot::{split_chunks, CHUNK_TIMESLOT_OFFSET, CHUNK_TIMESLOT_TABLE};
+use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
     let trace = std::env::args().any(|a| a == "--trace");
-    println!("validity-rs sensor identification (read-only)\n");
+    println!("validity-fprintd sensor identification (read-only)\n");
 
     let mut usb = Usb::open_first()?;
     usb.trace = trace;
@@ -71,7 +71,7 @@ fn main() -> Result<()> {
     );
 
     // Cross-check the flash IC against the geometry the sensor reports.
-    let info = validity_rs::flash::get_flash_info(&mut tls)?;
+    let info = validity_fprintd::flash::get_flash_info(&mut tls)?;
     match flash_ic_lookup(
         info.jedec_id.0 as u32,
         info.jedec_id.1 as u32,

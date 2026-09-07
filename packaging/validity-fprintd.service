@@ -1,6 +1,6 @@
 [Unit]
 Description=Validity fingerprint authentication daemon
-Documentation=https://github.com/bisand/validity-rs
+Documentation=https://github.com/bisand/validity-fprintd
 # Both claim net.reactivated.Fprint, so they must never run together.
 Conflicts=fprintd.service
 
@@ -10,7 +10,7 @@ BusName=net.reactivated.Fprint
 ExecStart=/usr/local/bin/validity-fprintd
 # The sensor needs raw USB access and the DMI serial, both root-only.
 User=root
-StateDirectory=validity-rs
+StateDirectory=validity-fprintd
 Restart=on-failure
 RestartSec=2
 

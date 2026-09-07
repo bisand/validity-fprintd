@@ -4,15 +4,15 @@
 //! firmware is uploaded, and the pairing record is never modified.
 
 use anyhow::Result;
-use validity_rs::crypto::HostKeys;
-use validity_rs::flash::{get_flash_info, get_fw_info, read_tls_flash};
-use validity_rs::pairing::{host_identity, inspect_pairing, parse_flash_blocks, PairingState};
-use validity_rs::usb::{device_name, Usb};
+use validity_fprintd::crypto::HostKeys;
+use validity_fprintd::flash::{get_flash_info, get_fw_info, read_tls_flash};
+use validity_fprintd::pairing::{host_identity, inspect_pairing, parse_flash_blocks, PairingState};
+use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
     let trace = std::env::args().any(|a| a == "--trace");
 
-    println!("validity-rs probe (read-only)\n");
+    println!("validity-fprintd probe (read-only)\n");
 
     let mut usb = Usb::open_first()?;
     usb.trace = trace;

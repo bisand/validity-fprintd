@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use validity_rs::device::{Sensor, VerifyOutcome};
+use validity_fprintd::device::{Sensor, VerifyOutcome};
 use zbus::object_server::SignalContext;
 use zbus::zvariant::OwnedObjectPath;
 
@@ -342,7 +342,7 @@ async fn resolve_user(
         .map_err(|e| zbus::fdo::Error::Failed(format!("bad sender name: {e}")))?;
     let uid = proxy.get_connection_unix_user(bus_name).await?;
 
-    validity_rs::device::username_for_uid(uid)
+    validity_fprintd::device::username_for_uid(uid)
         .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
 }
 

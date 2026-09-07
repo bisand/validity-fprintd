@@ -3,15 +3,15 @@
 //! Read-only: lists storage, users and enrolled fingers. Nothing is written.
 
 use anyhow::Result;
-use validity_rs::db::{
+use validity_fprintd::db::{
     db_info, finger_name, get_record_children, get_user_storage, list_users, STORAGE_NAME,
 };
-use validity_rs::init::{open_session, reboot};
-use validity_rs::usb::{device_name, Usb};
+use validity_fprintd::init::{open_session, reboot};
+use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
     let trace = std::env::args().any(|a| a == "--trace");
-    println!("validity-rs database dump (read-only)\n");
+    println!("validity-fprintd database dump (read-only)\n");
 
     let mut usb = Usb::open_first()?;
     usb.trace = trace;

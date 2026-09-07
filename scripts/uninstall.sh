@@ -12,12 +12,18 @@ systemctl disable --now validity-fprintd.service 2>/dev/null
 rm -f /etc/systemd/system/validity-fprintd.service
 systemctl daemon-reload
 
-echo "--- removing binaries and rules ---"
-rm -f /usr/local/bin/validity-fprintd
-for tool in vfs-probe vfs-session vfs-db vfs-sensor vfs-verify; do
-    rm -f "/usr/local/bin/$tool"
+# Remove binaries from before the project was renamed.
+for old in vfs-probe vfs-session vfs-db vfs-sensor vfs-verify; do
+    rm -f "/usr/local/bin/$old"
 done
 rm -f /etc/udev/rules.d/70-validity-rs.rules
+
+echo "--- removing binaries and rules ---"
+rm -f /usr/local/bin/validity-fprintd
+for tool in validity-probe validity-session validity-db validity-sensor validity-verify; do
+    rm -f "/usr/local/bin/$tool"
+done
+rm -f /etc/udev/rules.d/70-validity-fprintd.rules
 udevadm control --reload-rules 2>/dev/null || true
 
 echo "--- removing fingerprint PAM rules ---"
@@ -37,4 +43,4 @@ systemctl unmask fprintd.service
 
 echo
 echo "Removed. Password authentication is unaffected."
-echo "Calibration cache left at /var/lib/validity-rs (delete it if you want a clean slate)."
+echo "Calibration cache left at /var/lib/validity-fprintd (delete it if you want a clean slate)."

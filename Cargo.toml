@@ -1,10 +1,10 @@
 [package]
-name = "validity-rs"
+name = "validity-fprintd"
 version = "0.1.0"
 edition = "2021"
 description = "Rust driver for Synaptics/Validity match-on-chip fingerprint sensors (06cb:009a and friends)"
 license = "MIT"
-repository = "https://github.com/bisand/validity-rs"
+repository = "https://github.com/bisand/validity-fprintd"
 
 [dependencies]
 rusb = "0.9"

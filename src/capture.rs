@@ -668,7 +668,7 @@ pub fn match_finger(tls: &mut Tls) -> Result<MatchResult> {
 }
 
 /// Where calibration data is cached between runs.
-pub const CALIB_CACHE_PATH: &str = "/var/lib/validity-rs/calib-data.bin";
+pub const CALIB_CACHE_PATH: &str = "/var/lib/validity-fprintd/calib-data.bin";
 
 impl Calibration {
     /// Load cached calibration data, if it is present and the right size.

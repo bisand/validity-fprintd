@@ -13,12 +13,20 @@ BIN="$ROOT/target/release/validity-fprintd"
 
 echo "--- installing binary ---"
 install -Dm755 "$BIN" /usr/local/bin/validity-fprintd
-for tool in vfs-probe vfs-session vfs-db vfs-sensor vfs-verify; do
+for tool in validity-probe validity-session validity-db validity-sensor validity-verify; do
     [ -x "$ROOT/target/release/$tool" ] && install -Dm755 "$ROOT/target/release/$tool" "/usr/local/bin/$tool"
 done
 
+# Remove binaries from before the project was renamed.
+for old in vfs-probe vfs-session vfs-db vfs-sensor vfs-verify; do
+    rm -f "/usr/local/bin/$old"
+done
+rm -f /etc/udev/rules.d/70-validity-rs.rules
+# The calibration cache moved with the rename; it is rebuilt on first use.
+rm -rf /var/lib/validity-rs
+
 echo "--- installing udev rules ---"
-install -Dm644 "$ROOT/udev/70-validity-rs.rules" /etc/udev/rules.d/70-validity-rs.rules
+install -Dm644 "$ROOT/udev/70-validity-fprintd.rules" /etc/udev/rules.d/70-validity-fprintd.rules
 udevadm control --reload-rules 2>/dev/null || true
 
 echo "--- installing systemd unit ---"

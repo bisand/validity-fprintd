@@ -4,16 +4,16 @@
 //! the encrypted channel. Nothing is written to the sensor.
 
 use anyhow::Result;
-use validity_rs::crypto::HostKeys;
-use validity_rs::flash::{get_flash_info, read_tls_flash};
-use validity_rs::init::{reboot, send_init};
-use validity_rs::pairing::{build_material, host_identity, parse_flash_blocks};
-use validity_rs::tls::{PairingMaterial, Tls};
-use validity_rs::usb::{device_name, Usb};
+use validity_fprintd::crypto::HostKeys;
+use validity_fprintd::flash::{get_flash_info, read_tls_flash};
+use validity_fprintd::init::{reboot, send_init};
+use validity_fprintd::pairing::{build_material, host_identity, parse_flash_blocks};
+use validity_fprintd::tls::{PairingMaterial, Tls};
+use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
     let trace = std::env::args().any(|a| a == "--trace");
-    println!("validity-rs session test (read-only)\n");
+    println!("validity-fprintd session test (read-only)\n");
 
     let mut usb = Usb::open_first()?;
     usb.trace = trace;

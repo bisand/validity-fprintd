@@ -6,18 +6,18 @@
 use anyhow::Result;
 use std::io::Write;
 use std::time::Duration;
-use validity_rs::capture::{
+use validity_fprintd::capture::{
     capture, check_clean_slate, glow_end_scan, glow_start_scan, match_finger,
     Calibration,
 };
-use validity_rs::db::{finger_name, get_user, list_users};
-use validity_rs::init::{open_session, reboot};
-use validity_rs::sensor::{CaptureMode, SensorConfig};
-use validity_rs::usb::{device_name, Usb};
+use validity_fprintd::db::{finger_name, get_user, list_users};
+use validity_fprintd::init::{open_session, reboot};
+use validity_fprintd::sensor::{CaptureMode, SensorConfig};
+use validity_fprintd::usb::{device_name, Usb};
 
 fn main() -> Result<()> {
     let trace = std::env::args().any(|a| a == "--trace");
-    println!("validity-rs fingerprint verification\n");
+    println!("validity-fprintd fingerprint verification\n");
 
     let mut usb = Usb::open_first()?;
     usb.trace = trace;

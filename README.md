@@ -1,4 +1,4 @@
-# validity-rs
+# validity-fprintd
 
 A Rust driver for Synaptics/Validity **match-on-chip** fingerprint sensors — the
 family found in ThinkPads and other laptops that stock `libfprint` does not
@@ -34,7 +34,7 @@ baseline. In practice that means:
   machine's DMI identity, which is the same under either OS, so a
   Windows-paired sensor opens fine on the same laptop.
 - A **factory-fresh** sensor, or one that has been factory reset, will report
-  `UNPAIRED` from `vfs-probe` and cannot be used yet.
+  `UNPAIRED` from `validity-probe` and cannot be used yet.
 
 Only sensor type `0x199` and the type-1 capture path are implemented. Type-2
 sensors are recognised but will refuse to capture.
@@ -88,11 +88,11 @@ sudo ./scripts/uninstall.sh
 All of these are read-only except where noted.
 
 ```sh
-sudo vfs-probe     # device, firmware, flash layout and pairing state
-sudo vfs-session   # open an encrypted session, read the partition table back
-sudo vfs-db        # storage objects, users and enrolled fingers
-sudo vfs-sensor    # sensor identity, geometry, capture-program selection
-sudo vfs-verify    # calibrate, capture a fingerprint and match it on-chip
+sudo validity-probe     # device, firmware, flash layout and pairing state
+sudo validity-session   # open an encrypted session, read the partition table back
+sudo validity-db        # storage objects, users and enrolled fingers
+sudo validity-sensor    # sensor identity, geometry, capture-program selection
+sudo validity-verify    # calibrate, capture a fingerprint and match it on-chip
 ```
 
 Root is required for raw USB access and to read `/sys/class/dmi/id/product_serial`,
@@ -101,7 +101,7 @@ traffic.
 
 ### Pairing states
 
-`vfs-probe` reports one of three states:
+`validity-probe` reports one of three states:
 
 - **Paired to this host** — the sensor's private key decrypts and authenticates.
   Sessions work with no writes to the sensor.
