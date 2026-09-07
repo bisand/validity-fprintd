@@ -84,11 +84,12 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           NAME="validity-fprintd-${VERSION}-${{ matrix.target }}"
+          BINS="validity-fprintd validity-probe validity-session validity-db
+                validity-sensor validity-verify validity-baseline
+                validity-firmware validity-provision"
 
-          mkdir -p "dist/$NAME/bin" "dist/$NAME/share"
-          for b in validity-fprintd validity-probe validity-session validity-db \
-                   validity-sensor validity-verify validity-baseline \
-                   validity-firmware validity-provision; do
+          mkdir -p "dist/$NAME/bin" "dist/$NAME/share" out
+          for b in $BINS; do
             cp "target/${{ matrix.target }}/release/$b" "dist/$NAME/bin/"
           done
 
@@ -98,16 +99,25 @@ jobs:
           cp scripts/fetch-firmware.sh "dist/$NAME/share/"
           cp README.md LICENSE "dist/$NAME/"
 
-          tar -C dist -czf "$NAME.tar.gz" "$NAME"
-          sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+          # The tarball is what install.sh fetches: one download that also
+          # carries the service files, udev rules and firmware script.
+          tar -C dist -czf "out/$NAME.tar.gz" "$NAME"
+
+          # Individual binaries as well, so a single tool can be downloaded
+          # without the tarball. Suffixed so architectures do not collide.
+          for b in $BINS; do
+            cp "dist/$NAME/bin/$b" "out/${b}-${{ matrix.target }}"
+          done
+
+          # One checksum file per target; the publish job concatenates them.
+          ( cd out && sha256sum -- * > "../SHA256SUMS-${{ matrix.target }}" )
+          mv "SHA256SUMS-${{ matrix.target }}" out/
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.name }}
-          path: |
-            *.tar.gz
-            *.tar.gz.sha256
+          path: out/*
 
   publish:
     name: attach to release
