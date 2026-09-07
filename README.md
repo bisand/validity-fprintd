@@ -89,6 +89,35 @@ cargo build --release
 
 ## Installing
 
+### Quick install (any distribution)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
+```
+
+Downloads the latest release, verifies its SHA-256, installs the binaries and
+udev rules, and sets up the service for systemd or OpenRC. It refuses to
+install if the checksum cannot be fetched or does not match. Uninstall with
+`... | sudo sh -s -- --uninstall`.
+
+Release binaries are statically linked against musl with libusb built in, so
+they do not depend on the host's libc or libusb version.
+
+| Distribution | Daemon | Login via PAM | Package providing `pam_fprintd` |
+|---|---|---|---|
+| Arch / Omarchy | systemd | yes | `fprintd` |
+| Ubuntu / Debian | systemd | yes | `libpam-fprintd` |
+| Fedora | systemd | yes | `fprintd-pam` |
+| Alpine | OpenRC | yes | `fprintd-pam` (community) |
+
+This driver replaces `fprintd` itself; the package above is still needed for
+`pam_fprintd.so` and the `fprintd-*` client tools. The installer masks or
+disables the conflicting `fprintd` service, since both claim the
+`net.reactivated.Fprint` D-Bus name.
+
+Only `06cb:009a` has been tested on hardware, on Arch. Other distributions are
+supported by construction rather than by testing.
+
 ### Building the Arch package
 
 The `-git` PKGBUILD lives in this repository, so no AUR account is needed:
