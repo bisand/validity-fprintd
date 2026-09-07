@@ -33,15 +33,31 @@ jobs:
 
       # Statically linked against musl with libusb built from source, so the
       # result runs on any distribution regardless of libc or libusb version.
+      #
+      # Do not override the Rust linker here. Pointing it at musl-gcc produces a
+      # dynamic PIE that still needs /lib/ld-musl-*.so at runtime; letting rustc
+      # link with its own self-contained CRT objects yields a static-pie, which
+      # is self-contained and keeps ASLR.
       - name: Build
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: cross build --release --locked --target ${{ matrix.target }} --features vendored
 
-      - name: Verify the binary is static
+      # "Statically linked" from ldd is not enough: a binary can have no shared
+      # libraries yet still carry a PT_INTERP entry naming the musl loader, in
+      # which case it fails to exec anywhere musl is not installed.
+      - name: Verify the binary is truly self-contained
         run: |
           F="target/${{ matrix.target }}/release/validity-fprintd"
           file "$F"
-          if file "$F" | grep -q "dynamically linked"; then
-            echo "::error::binary is dynamically linked; it will not be portable"
+          readelf -lWd "$F" | grep -E "INTERP|NEEDED|Requesting" || true
+
+          if readelf -l "$F" | grep -q INTERP; then
+            echo "::error::binary requests a program interpreter and will not run without it"
+            exit 1
+          fi
+          if readelf -d "$F" 2>/dev/null | grep -q NEEDED; then
+            echo "::error::binary has shared library dependencies"
             exit 1
           fi
 

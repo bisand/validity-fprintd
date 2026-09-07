@@ -170,6 +170,36 @@ Removal, including any PAM rules:
 sudo ./scripts/uninstall.sh
 ```
 
+## Building portable release binaries
+
+Release artifacts are static-pie musl binaries with libusb compiled in, so they
+run on any distribution. To reproduce a build locally on Arch:
+
+```sh
+sudo pacman -S musl
+rustup target add x86_64-unknown-linux-musl
+
+CC_x86_64_unknown_linux_musl=musl-gcc \
+CFLAGS_x86_64_unknown_linux_musl="-idirafter /usr/include" \
+RUSTFLAGS="-C target-feature=+crt-static" \
+cargo build --release --target x86_64-unknown-linux-musl --features vendored
+```
+
+`-idirafter` is needed because Arch's `musl-gcc` does not search the Linux uapi
+headers that libusb includes; appending the path leaves musl's own headers
+taking precedence.
+
+Do **not** set `CARGO_TARGET_*_LINKER=musl-gcc`. Doing so produces a dynamic
+PIE that still requires `/lib/ld-musl-x86_64.so.1` at run time and therefore
+fails on any host without musl installed. Letting rustc link with its own
+self-contained CRT objects produces a static-pie instead, which needs nothing
+and keeps ASLR. Verify with:
+
+```sh
+readelf -l target/.../validity-fprintd | grep INTERP   # must print nothing
+readelf -d target/.../validity-fprintd | grep NEEDED   # must print nothing
+```
+
 ## Tools
 
 Read-only unless noted.
