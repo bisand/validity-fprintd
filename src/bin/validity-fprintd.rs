@@ -109,7 +109,7 @@ impl Device {
             }
         }
 
-        state.claimed_by = Some(resolve_user(&username));
+        state.claimed_by = Some(resolve_user(conn, sender.as_deref(), &username).await?);
         state.claim_owner = sender;
         state.busy = false;
         Ok(())
@@ -123,8 +123,13 @@ impl Device {
         Ok(())
     }
 
-    async fn list_enrolled_fingers(&self, username: String) -> zbus::fdo::Result<Vec<String>> {
-        let user = resolve_user(&username);
+    async fn list_enrolled_fingers(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        username: String,
+    ) -> zbus::fdo::Result<Vec<String>> {
+        let user = resolve_user(conn, hdr.sender().map(|s| s.as_str()), &username).await?;
         let slot = self.sensor.clone();
         tokio::task::spawn_blocking(move || {
             with_sensor(&slot, |s| s.list_enrolled_fingers(&user))
@@ -134,8 +139,13 @@ impl Device {
         .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
     }
 
-    async fn delete_enrolled_fingers(&self, username: String) -> zbus::fdo::Result<()> {
-        let user = resolve_user(&username);
+    async fn delete_enrolled_fingers(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        username: String,
+    ) -> zbus::fdo::Result<()> {
+        let user = resolve_user(conn, hdr.sender().map(|s| s.as_str()), &username).await?;
         let slot = self.sensor.clone();
         tokio::task::spawn_blocking(move || {
             with_sensor(&slot, |s| s.delete_enrolled_fingers(&user))
@@ -313,11 +323,27 @@ async fn peer_is_alive(conn: &zbus::Connection, name: &str) -> bool {
 }
 
 /// fprintd clients pass an empty username to mean "the calling user".
-fn resolve_user(username: &str) -> String {
+///
+/// That has to be resolved from the D-Bus peer's uid. Reading the daemon's own
+/// environment would always yield root, since it runs as a system service.
+async fn resolve_user(
+    conn: &zbus::Connection,
+    sender: Option<&str>,
+    username: &str,
+) -> zbus::fdo::Result<String> {
     if !username.is_empty() {
-        return username.to_string();
+        return Ok(username.to_string());
     }
-    std::env::var("SUDO_USER").unwrap_or_else(|_| "root".to_string())
+
+    let sender = sender
+        .ok_or_else(|| zbus::fdo::Error::Failed("message has no sender to resolve".into()))?;
+    let proxy = zbus::fdo::DBusProxy::new(conn).await?;
+    let bus_name = zbus::names::BusName::try_from(sender.to_string())
+        .map_err(|e| zbus::fdo::Error::Failed(format!("bad sender name: {e}")))?;
+    let uid = proxy.get_connection_unix_user(bus_name).await?;
+
+    validity_rs::device::username_for_uid(uid)
+        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
 }
 
 #[tokio::main]

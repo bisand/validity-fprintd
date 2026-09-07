@@ -157,3 +157,15 @@ impl Sensor {
         let _ = reboot(&mut self.tls);
     }
 }
+
+/// Resolve a uid to its login name.
+pub fn username_for_uid(uid: u32) -> Result<String> {
+    let passwd = std::fs::read_to_string("/etc/passwd").context("reading /etc/passwd")?;
+    for line in passwd.lines() {
+        let f: Vec<&str> = line.split(':').collect();
+        if f.len() > 2 && f[2].parse::<u32>().ok() == Some(uid) {
+            return Ok(f[0].to_string());
+        }
+    }
+    anyhow::bail!("no user with uid {uid}")
+}
