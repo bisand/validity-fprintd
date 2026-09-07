@@ -8,30 +8,36 @@ Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
 
 ## Status
 
-Working, verified against real hardware — this driver successfully captures a
-fingerprint and matches it on-chip:
+Working, verified against real hardware. Enrols, verifies, and authenticates
+sudo, polkit and the lock screen through the stock `pam_fprintd`.
 
 | Capability | Status |
 |---|---|
-| USB bulk transport, endpoint discovery, kernel-driver handoff | Working |
-| Signed vendor init handshake | Working |
-| Pairing-record parsing and host key derivation | Working |
-| Sensor authentication via Synaptics firmware signature | Working |
+| USB transport, signed init handshake | Working |
+| Pairing-record parsing, host key derivation, sensor authentication | Working |
 | Encrypted session (the firmware's TLS 1.2 dialect) | Working |
-| Flash access over plain and encrypted transports | Working |
-| On-chip enrolment database (storage, users, fingers) | Working |
-| Sensor identification, geometry and capture-program selection | Working |
-| Calibration and capture-program patching (type-1 sensors) | Working |
-| Image capture and on-chip matching | Working |
-| Enrolment of new fingers | Not yet implemented |
-| `fprintd` / PAM integration | Not yet implemented |
+| Flash access, on-chip enrolment database (read and write) | Working |
+| Sensor identification, calibration, image capture | Working |
+| On-chip matching | Working |
+| Enrolment and deletion of fingers | Working |
+| `fprintd`-compatible D-Bus daemon | Working |
+| Provisioning an unprovisioned sensor | Not implemented |
 
-Matching requires fingers that are already enrolled — by the Windows driver, by
-python-validity, or by this driver once enrolment lands. There is no login
-integration yet, so this is not yet a drop-in replacement for `fprintd`.
+### What is not implemented
 
-Only the type-1 line-update path is implemented. Type-2 sensors are recognised
-but will refuse to capture.
+The driver uses a sensor that is already provisioned. It does not perform
+factory reset, firmware upload, flash partitioning, or write the calibration
+baseline. In practice that means:
+
+- A sensor previously used with **Windows Hello**, or with python-validity,
+  is already provisioned and should work. Pairing keys derive from the
+  machine's DMI identity, which is the same under either OS, so a
+  Windows-paired sensor opens fine on the same laptop.
+- A **factory-fresh** sensor, or one that has been factory reset, will report
+  `UNPAIRED` from `vfs-probe` and cannot be used yet.
+
+Only sensor type `0x199` and the type-1 capture path are implemented. Type-2
+sensors are recognised but will refuse to capture.
 
 ## Supported devices
 
@@ -50,30 +56,48 @@ Only `06cb:009a` has been tested on hardware.
 cargo build --release
 ```
 
-## Tools
-
-All of these write nothing to the sensor.
+## Installing
 
 ```sh
-# Device, firmware, flash layout and pairing state.
-sudo ./target/release/vfs-probe
+cargo build --release
+sudo ./scripts/install.sh
+```
 
-# Open an encrypted session and read the partition table back through it.
-sudo ./target/release/vfs-session
+This installs the daemon and CLI tools, adds a systemd unit and udev rules,
+and masks the stock `fprintd.service` — both claim the `net.reactivated.Fprint`
+bus name, so they cannot run together. It does not touch PAM.
 
-# List storage objects, users and enrolled fingers.
-sudo ./target/release/vfs-db
+To configure authentication on Omarchy:
 
-# Sensor identity, geometry and capture-program selection.
-sudo ./target/release/vfs-sensor
+```sh
+omarchy setup security fingerprint
+```
 
-# Calibrate, capture a fingerprint and match it on-chip.
-sudo ./target/release/vfs-verify
+That enrols a finger, verifies it, and writes the PAM configuration for sudo,
+polkit and the lock screen. On other distributions, add
+`auth sufficient pam_fprintd.so` to the relevant files in `/etc/pam.d/`.
+
+Removal, including any PAM rules:
+
+```sh
+sudo ./scripts/uninstall.sh
+```
+
+## Tools
+
+All of these are read-only except where noted.
+
+```sh
+sudo vfs-probe     # device, firmware, flash layout and pairing state
+sudo vfs-session   # open an encrypted session, read the partition table back
+sudo vfs-db        # storage objects, users and enrolled fingers
+sudo vfs-sensor    # sensor identity, geometry, capture-program selection
+sudo vfs-verify    # calibrate, capture a fingerprint and match it on-chip
 ```
 
 Root is required for raw USB access and to read `/sys/class/dmi/id/product_serial`,
-which the pairing keys derive from. Pass `--trace` to any tool for a hex dump of
-the wire traffic.
+which the pairing keys derive from. Pass `--trace` for a hex dump of the wire
+traffic.
 
 ### Pairing states
 
