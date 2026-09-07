@@ -8,6 +8,12 @@ Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
 
 ## What it looks like
 
+![validity-fprintd capturing a fingerprint and matching it on the sensor](docs/demo.gif)
+
+Stock `fprintd` finds no device; this driver identifies the sensor, calibrates
+it, captures a print and matches it on the chip.
+
+
 Before, with stock `libfprint` — the sensor is on the bus, but no driver claims it:
 
 ```console
