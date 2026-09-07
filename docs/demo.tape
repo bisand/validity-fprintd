@@ -4,14 +4,14 @@
 #   sudo -v                  # cache credentials; nothing here should prompt
 #   vhs docs/demo.tape
 #
-# One touch, ~22 seconds in, when validity-verify prints
+# One touch, ~18 seconds in, when validity-verify prints
 #
 #     >>> Touch the fingerprint sensor now (30s timeout) <<<
 #
-# Use a finger that is actually enrolled (`fprintd-list $USER` will tell you).
+# Use a finger that is actually enrolled; `fprintd-list $USER` will tell you.
 #
-# This deliberately avoids demonstrating PAM: a live sudo exchange retries and
-# falls back to a password prompt, which makes the recording unpredictable.
+# Deliberately avoids demonstrating PAM: a live sudo exchange retries and falls
+# back to a password prompt, which makes the recording unpredictable.
 # validity-verify has one clear prompt and a generous window.
 
 Output docs/demo.gif
@@ -19,19 +19,13 @@ Output docs/demo.gif
 Set Shell "bash"
 Set FontSize 15
 Set Width 1100
-Set Height 700
+Set Height 760
 Set Padding 18
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 45ms
 
-# --- The problem: stock fprintd sees nothing -------------------------------
-Type "fprintd-list $USER"
-Sleep 500ms
-Enter
-Sleep 3s
-
-# --- The sensor this driver talks to ---------------------------------------
-Type "clear && sudo validity-probe | head -20"
+# --- What the sensor is, and whether it is paired to this machine ----------
+Type "sudo validity-probe"
 Sleep 500ms
 Enter
 Sleep 9s
