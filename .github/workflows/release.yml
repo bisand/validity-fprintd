@@ -131,10 +131,12 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # One SHA256SUMS-<target> arrives per build job; merge them into the single
+      # SHA256SUMS that install.sh looks for.
       - name: Collect checksums
         run: |
-          cat dist/*.sha256 > dist/SHA256SUMS
-          rm -f dist/*.sha256
+          cat dist/SHA256SUMS-* > dist/SHA256SUMS
+          rm -f dist/SHA256SUMS-*
           cat dist/SHA256SUMS
 
       # Upload rather than create, so the notes written on the release are kept.
