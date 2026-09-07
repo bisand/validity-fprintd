@@ -10,6 +10,7 @@ use crate::crypto::{
     aes_cbc_decrypt_raw, aes_cbc_encrypt_raw, hmac_sha256, pad_validity, prf, unpad_validity,
 };
 use crate::usb::Usb;
+use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey};
@@ -54,8 +55,8 @@ pub struct PairingMaterial {
     pub ecdh_public: p256::PublicKey,
 }
 
-pub struct Tls<'a> {
-    usb: &'a Usb,
+pub struct Tls {
+    usb: Arc<Usb>,
     material: PairingMaterial,
     handshake_hash: Sha256,
     client_random: [u8; 32],
@@ -70,8 +71,8 @@ pub struct Tls<'a> {
     pub secure_rx: bool,
 }
 
-impl<'a> Tls<'a> {
-    pub fn new(usb: &'a Usb, material: PairingMaterial) -> Self {
+impl Tls {
+    pub fn new(usb: Arc<Usb>, material: PairingMaterial) -> Self {
         Self {
             usb,
             material,
@@ -90,8 +91,8 @@ impl<'a> Tls<'a> {
     }
 
     /// The underlying transport, for bulk and interrupt endpoint access.
-    pub fn usb(&self) -> &'a Usb {
-        self.usb
+    pub fn usb(&self) -> &Usb {
+        &self.usb
     }
 
     /// Send a command, encrypting it once the session is up.
@@ -439,7 +440,7 @@ fn make_ext(id: u16, b: &[u8]) -> Vec<u8> {
     o
 }
 
-impl crate::usb::Transport for Tls<'_> {
+impl crate::usb::Transport for Tls {
     fn cmd(&mut self, out: &[u8]) -> Result<Vec<u8>> {
         Tls::cmd(self, out)
     }

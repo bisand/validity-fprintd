@@ -5,10 +5,10 @@
 //! stock fprintd, since both claim the same bus name.
 
 use anyhow::Result;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use validity_rs::device::{list_enrolled_fingers, verify, VerifyOutcome};
+use validity_rs::device::{Sensor, VerifyOutcome};
 use zbus::object_server::SignalContext;
 use zbus::zvariant::OwnedObjectPath;
 
@@ -18,6 +18,29 @@ const BUS_NAME: &str = "net.reactivated.Fprint";
 
 /// How long to wait for the user to present a finger.
 const FINGER_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The sensor session, opened lazily and shared across D-Bus calls.
+type SensorSlot = Arc<StdMutex<Option<Sensor>>>;
+
+/// Run `f` against a live session, opening one if needed.
+///
+/// If the operation fails the session is dropped, so the next call reconnects
+/// rather than reusing a session the sensor may have already torn down.
+fn with_sensor<T>(
+    slot: &SensorSlot,
+    f: impl FnOnce(&mut Sensor) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let mut guard = slot.lock().expect("sensor mutex poisoned");
+    if guard.is_none() {
+        *guard = Some(Sensor::open(false)?);
+    }
+
+    let result = f(guard.as_mut().expect("session just opened"));
+    if result.is_err() {
+        *guard = None;
+    }
+    result
+}
 
 struct Manager;
 
@@ -41,6 +64,7 @@ struct DeviceState {
 
 struct Device {
     state: Arc<Mutex<DeviceState>>,
+    sensor: SensorSlot,
 }
 
 #[zbus::interface(name = "net.reactivated.Fprint.Device")]
@@ -84,10 +108,13 @@ impl Device {
 
     async fn list_enrolled_fingers(&self, username: String) -> zbus::fdo::Result<Vec<String>> {
         let user = resolve_user(&username);
-        tokio::task::spawn_blocking(move || list_enrolled_fingers(&user))
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
-            .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
+        let slot = self.sensor.clone();
+        tokio::task::spawn_blocking(move || {
+            with_sensor(&slot, |s| s.list_enrolled_fingers(&user))
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
     }
 
     async fn delete_enrolled_fingers(&self, _username: String) -> zbus::fdo::Result<()> {
@@ -125,12 +152,15 @@ impl Device {
 
         let ctxt = ctxt.to_owned();
         let shared = self.state.clone();
+        let slot = self.sensor.clone();
 
         tokio::spawn(async move {
             let _ = Device::verify_finger_selected(&ctxt, &finger_name).await;
 
-            let outcome =
-                tokio::task::spawn_blocking(move || verify(&user, FINGER_TIMEOUT)).await;
+            let outcome = tokio::task::spawn_blocking(move || {
+                with_sensor(&slot, |s| s.verify(&user, FINGER_TIMEOUT))
+            })
+            .await;
 
             let result = match outcome {
                 Ok(Ok(VerifyOutcome::Match { .. })) => "verify-match",
@@ -178,7 +208,13 @@ async fn main() -> Result<()> {
     let _conn = zbus::connection::Builder::system()?
         .name(BUS_NAME)?
         .serve_at(MANAGER_PATH, Manager)?
-        .serve_at(DEVICE_PATH, Device { state: Arc::new(Mutex::new(DeviceState::default())) })?
+        .serve_at(
+            DEVICE_PATH,
+            Device {
+                state: Arc::new(Mutex::new(DeviceState::default())),
+                sensor: Arc::new(StdMutex::new(None)),
+            },
+        )?
         .build()
         .await?;
 

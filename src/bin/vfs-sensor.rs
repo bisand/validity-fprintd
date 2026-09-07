@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         device_name(usb.vid, usb.pid).unwrap_or("unknown")
     );
 
-    let (mut tls, _) = open_session(&mut usb)?;
+    let (mut tls, _) = open_session(std::sync::Arc::new(usb))?;
     println!("Session     : established\n");
 
     let cfg = SensorConfig::probe(&mut tls)?;

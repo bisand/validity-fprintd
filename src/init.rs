@@ -40,21 +40,22 @@ pub fn reboot(t: &mut impl crate::usb::Transport) -> Result<()> {
 }
 
 /// Bring the device up and open an encrypted session in one step.
-pub fn open_session(usb: &mut Usb) -> Result<(crate::tls::Tls<'_>, bool)> {
+pub fn open_session(usb: std::sync::Arc<Usb>) -> Result<(crate::tls::Tls, bool)> {
     use crate::crypto::HostKeys;
     use crate::flash::read_tls_flash;
     use crate::pairing::{build_material, host_identity, parse_flash_blocks};
     use crate::tls::{PairingMaterial, Tls};
 
-    send_init(usb)?;
-    let blocks = parse_flash_blocks(&read_tls_flash(usb)?)?;
+    send_init(&usb)?;
+    let mut probe = UsbProbe(usb.clone());
+    let blocks = parse_flash_blocks(&read_tls_flash(&mut probe)?)?;
     let (product_name, product_serial) = host_identity()?;
     let keys = HostKeys::derive(&product_name, &product_serial);
     let material = build_material(&blocks, &keys)?;
     let signature_valid = material.firmware_signature_valid;
 
     let mut tls = Tls::new(
-        &*usb,
+        usb,
         PairingMaterial {
             private_key_d: material.private_key_d,
             tls_cert: material.tls_cert,
@@ -63,4 +64,13 @@ pub fn open_session(usb: &mut Usb) -> Result<(crate::tls::Tls<'_>, bool)> {
     );
     tls.open()?;
     Ok((tls, signature_valid))
+}
+
+/// Adapts a shared `Usb` to the `Transport` trait for pre-session reads.
+struct UsbProbe(std::sync::Arc<Usb>);
+
+impl crate::usb::Transport for UsbProbe {
+    fn cmd(&mut self, out: &[u8]) -> Result<Vec<u8>> {
+        self.0.cmd(out)
+    }
 }

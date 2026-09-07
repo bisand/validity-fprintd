@@ -28,7 +28,7 @@ fn main() -> Result<()> {
         device_name(usb.vid, usb.pid).unwrap_or("unknown")
     );
 
-    let (mut tls, _) = open_session(&mut usb)?;
+    let (mut tls, _) = open_session(std::sync::Arc::new(usb))?;
     let cfg = SensorConfig::probe(&mut tls)?;
     println!("Sensor      : {} (type {:#06x})", cfg.device_name, cfg.sensor_type);
 

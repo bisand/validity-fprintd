@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         device_name(usb.vid, usb.pid).unwrap_or("unknown")
     );
 
-    let (mut tls, sig_ok) = open_session(&mut usb)?;
+    let (mut tls, sig_ok) = open_session(std::sync::Arc::new(usb))?;
     println!("Session     : established{}", if sig_ok { "" } else { " (FIRMWARE SIGNATURE INVALID)" });
 
     let info = db_info(&mut tls)?;

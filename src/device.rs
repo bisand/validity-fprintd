@@ -1,16 +1,20 @@
-//! A single-operation view of the sensor, for daemon use.
+//! A long-lived handle to the sensor, for daemon use.
 //!
-//! Each operation opens a fresh session and closes it again. Session state is
-//! cheap to rebuild and the sensor leaks context if sessions are held open, so
-//! this is both simpler and better behaved than a long-lived handle.
+//! The session is held open across operations. The sensor allocates a context
+//! per session and never reclaims them, so repeatedly opening and closing
+//! sessions leaks its memory; and closing a session cleanly requires a reboot,
+//! after which the device drops off the USB bus long enough to break any
+//! operation that follows. Holding one session avoids both problems.
 
 use crate::capture::{capture, glow_end_scan, glow_start_scan, match_finger, Calibration};
-use crate::db::{finger_name, list_users};
+use crate::db::{finger_name, get_user, list_users};
 use crate::init::{open_session, reboot};
 use crate::sensor::{CaptureMode, SensorConfig};
 use crate::sid::SidIdentity;
+use crate::tls::Tls;
 use crate::usb::Usb;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Domain component python-validity uses for synthetic Linux SIDs. Matching it
@@ -47,52 +51,72 @@ pub enum VerifyOutcome {
     Retry(String),
 }
 
-/// Names of the fingers enrolled for a user, as fprintd finger names.
-pub fn list_enrolled_fingers(username: &str) -> Result<Vec<String>> {
-    let sid = sid_for_user(username)?;
-    let mut usb = Usb::open_first()?;
-    let (mut tls, _) = open_session(&mut usb)?;
-
-    let users = list_users(&mut tls)?;
-    let fingers = users
-        .iter()
-        .filter(|u| u.identity == sid)
-        .flat_map(|u| u.fingers.iter().map(|f| finger_name(f.subtype).to_string()))
-        .collect();
-
-    let _ = reboot(&mut tls);
-    Ok(fingers)
+pub struct Sensor {
+    tls: Tls,
+    cfg: SensorConfig,
+    calib: Calibration,
 }
 
-/// Capture a fingerprint and match it against the enrolments for `username`.
-pub fn verify(username: &str, timeout: Duration) -> Result<VerifyOutcome> {
-    let sid = sid_for_user(username)?;
-    let mut usb = Usb::open_first()?;
-    let (mut tls, _) = open_session(&mut usb)?;
+impl Sensor {
+    /// Open the sensor, establish a session and load or build calibration.
+    pub fn open(trace: bool) -> Result<Self> {
+        let mut usb = Usb::open_first()?;
+        usb.trace = trace;
 
-    let cfg = SensorConfig::probe(&mut tls)?;
-    let calib = Calibration::load_or_calibrate(&mut tls, &cfg)?;
+        let (mut tls, _) = open_session(Arc::new(usb))?;
+        let cfg = SensorConfig::probe(&mut tls)?;
+        let calib = Calibration::load_or_calibrate(&mut tls, &cfg)?;
 
-    let _ = glow_start_scan(&mut tls);
-    let captured = capture(&mut tls, &calib, &cfg, CaptureMode::Identify, timeout);
+        Ok(Self { tls, cfg, calib })
+    }
 
-    let outcome = match captured {
-        Err(e) => VerifyOutcome::Retry(format!("{e:#}")),
-        Ok(_) => match match_finger(&mut tls) {
-            Err(_) => VerifyOutcome::NoMatch,
-            Ok(m) => {
-                // The sensor matched, but it must be this user's finger.
-                let owner = crate::db::get_user(&mut tls, m.user_dbid as u16).ok();
-                if owner.map(|u| u.identity) == Some(sid) {
-                    VerifyOutcome::Match { finger: finger_name(m.subtype).to_string() }
-                } else {
-                    VerifyOutcome::NoMatch
+    pub fn device_name(&self) -> &str {
+        self.cfg.device_name
+    }
+
+    /// Finger names enrolled for `username`.
+    pub fn list_enrolled_fingers(&mut self, username: &str) -> Result<Vec<String>> {
+        let sid = sid_for_user(username)?;
+        let users = list_users(&mut self.tls)?;
+
+        Ok(users
+            .iter()
+            .filter(|u| u.identity == sid)
+            .flat_map(|u| u.fingers.iter().map(|f| finger_name(f.subtype).to_string()))
+            .collect())
+    }
+
+    /// Capture a fingerprint and match it against `username`'s enrolments.
+    pub fn verify(&mut self, username: &str, timeout: Duration) -> Result<VerifyOutcome> {
+        let sid = sid_for_user(username)?;
+
+        let _ = glow_start_scan(&mut self.tls);
+        let captured =
+            capture(&mut self.tls, &self.calib, &self.cfg, CaptureMode::Identify, timeout);
+
+        let outcome = match captured {
+            Err(e) => VerifyOutcome::Retry(format!("{e:#}")),
+            Ok(_) => match match_finger(&mut self.tls) {
+                Err(_) => VerifyOutcome::NoMatch,
+                Ok(m) => {
+                    // The sensor matched something; it must be this user's finger.
+                    let owner = get_user(&mut self.tls, m.user_dbid as u16).ok();
+                    if owner.map(|u| u.identity) == Some(sid) {
+                        VerifyOutcome::Match { finger: finger_name(m.subtype).to_string() }
+                    } else {
+                        VerifyOutcome::NoMatch
+                    }
                 }
-            }
-        },
-    };
+            },
+        };
 
-    let _ = glow_end_scan(&mut tls);
-    let _ = reboot(&mut tls);
-    Ok(outcome)
+        let _ = glow_end_scan(&mut self.tls);
+        Ok(outcome)
+    }
+
+    /// Reboot the sensor to release its session context. Only on shutdown:
+    /// the device leaves the USB bus briefly afterwards.
+    pub fn shutdown(mut self) {
+        let _ = reboot(&mut self.tls);
+    }
 }

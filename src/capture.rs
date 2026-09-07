@@ -444,7 +444,7 @@ impl Calibration {
 
     /// Run the calibration iterations. This reads image data only; it does not
     /// write to the sensor.
-    pub fn calibrate(&mut self, tls: &mut Tls<'_>, cfg: &SensorConfig) -> Result<()> {
+    pub fn calibrate(&mut self, tls: &mut Tls, cfg: &SensorConfig) -> Result<()> {
         for i in 0..cfg.calibration_iterations {
             let cmd = self.build_cmd_02(CaptureMode::Calibrate, cfg)?;
             check_status(&tls.cmd(&cmd)?)
@@ -459,7 +459,7 @@ impl Calibration {
 }
 
 /// Wait for an interrupt on EP83, polling until `deadline`.
-fn wait_int(tls: &Tls<'_>, deadline: Instant) -> Result<Vec<u8>> {
+fn wait_int(tls: &Tls, deadline: Instant) -> Result<Vec<u8>> {
     loop {
         if let Some(b) = tls.usb().poll_interrupt(Duration::from_millis(100))? {
             return Ok(b);
@@ -481,7 +481,7 @@ pub struct CaptureResult {
 
 /// Run a capture, blocking until a finger is presented and scanned.
 pub fn capture(
-    tls: &mut Tls<'_>,
+    tls: &mut Tls,
     calib: &Calibration,
     cfg: &SensorConfig,
     mode: CaptureMode,
@@ -555,7 +555,7 @@ const CLEAN_SLATE_MAGIC: u16 = 0x5002;
 ///
 /// Read-only. Capture depends on this being present; without it the sensor
 /// cannot subtract its own baseline.
-pub fn check_clean_slate(tls: &mut Tls<'_>) -> Result<bool> {
+pub fn check_clean_slate(tls: &mut Tls) -> Result<bool> {
     use crate::flash::{read_flash, read_flash_all};
 
     let head = read_flash(tls, PARTITION_CALIBRATION, 0, 0x44)?;
@@ -582,11 +582,11 @@ pub fn check_clean_slate(tls: &mut Tls<'_>) -> Result<bool> {
 const GLOW_START_SCAN: &str = "3920bf0200ffff0000019900200000000099990000000000000000000000000020000000000000000000000000ffff000000990020000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 const GLOW_END_SCAN: &str = "39f4010000f401000001ff002000000000ffff0000000000000000000000000020000000000000000000000000f401000000ff0020000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
-pub fn glow_start_scan(tls: &mut Tls<'_>) -> Result<()> {
+pub fn glow_start_scan(tls: &mut Tls) -> Result<()> {
     check_status(&tls.cmd(&hex::decode(GLOW_START_SCAN)?)?).context("glow start")
 }
 
-pub fn glow_end_scan(tls: &mut Tls<'_>) -> Result<()> {
+pub fn glow_end_scan(tls: &mut Tls) -> Result<()> {
     check_status(&tls.cmd(&hex::decode(GLOW_END_SCAN)?)?).context("glow end")
 }
 
@@ -616,7 +616,7 @@ pub struct MatchResult {
 
 /// Ask the sensor to match the last captured image against every enrolled
 /// template. Matching happens on-chip; the host never sees image data.
-pub fn match_finger(tls: &mut Tls<'_>) -> Result<MatchResult> {
+pub fn match_finger(tls: &mut Tls) -> Result<MatchResult> {
     let mut cmd = vec![0x5e, 0x02, 0xff];
     cmd.extend_from_slice(&0u16.to_le_bytes()); // any storage
     cmd.extend_from_slice(&0u16.to_le_bytes()); // any user
@@ -694,7 +694,7 @@ impl Calibration {
     }
 
     /// Use cached calibration if available, otherwise calibrate and cache it.
-    pub fn load_or_calibrate(tls: &mut Tls<'_>, cfg: &SensorConfig) -> Result<Self> {
+    pub fn load_or_calibrate(tls: &mut Tls, cfg: &SensorConfig) -> Result<Self> {
         if let Some(c) = Self::load(cfg) {
             return Ok(c);
         }

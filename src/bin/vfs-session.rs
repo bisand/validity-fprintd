@@ -38,8 +38,9 @@ fn main() -> Result<()> {
     );
     println!("Cert        : {} bytes", material.tls_cert.len());
 
+    let usb = std::sync::Arc::new(usb);
     let mut tls = Tls::new(
-        &usb,
+        usb.clone(),
         PairingMaterial {
             private_key_d: material.private_key_d,
             tls_cert: material.tls_cert,
