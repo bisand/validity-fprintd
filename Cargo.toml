@@ -6,6 +6,12 @@ description = "Rust driver for Synaptics/Validity match-on-chip fingerprint sens
 license = "MIT"
 repository = "https://github.com/bisand/validity-fprintd"
 
+[features]
+# Build libusb from source and link it statically. Used for portable release
+# binaries that must run on any distribution, musl-based ones included.
+# Distribution packages should leave this off and link the system libusb.
+vendored = ["rusb/vendored"]
+
 [dependencies]
 rusb = "0.9"
 hmac = "0.12"
