@@ -38,8 +38,38 @@ pub struct Usb {
 }
 
 impl Usb {
-    /// Open the first supported sensor found on the bus.
+    /// Open the first supported sensor, waiting for it to appear.
+    ///
+    /// The sensor leaves the USB bus for a few seconds whenever it reboots,
+    /// which the daemon asks it to do on shutdown. A tool started straight
+    /// after `systemctl stop` would otherwise find no device at all.
     pub fn open_first() -> Result<Self> {
+        Self::open_first_within(Duration::from_secs(15))
+    }
+
+    /// Open the first supported sensor, retrying until `timeout` elapses.
+    pub fn open_first_within(timeout: Duration) -> Result<Self> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut announced = false;
+
+        loop {
+            match Self::try_open_first() {
+                Ok(usb) => return Ok(usb),
+                Err(e) => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(e);
+                    }
+                    if !announced {
+                        eprintln!("waiting for the sensor to appear on the USB bus...");
+                        announced = true;
+                    }
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+            }
+        }
+    }
+
+    fn try_open_first() -> Result<Self> {
         for dev in rusb::devices()?.iter() {
             let desc = match dev.device_descriptor() {
                 Ok(d) => d,
