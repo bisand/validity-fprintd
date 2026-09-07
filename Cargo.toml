@@ -16,4 +16,6 @@ p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 rand = "0.8"
 anyhow = "1"
 hex = "0.4"
+zbus = { version = "4", features = ["tokio"], default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 

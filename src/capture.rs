@@ -666,3 +666,42 @@ pub fn match_finger(tls: &mut Tls<'_>) -> Result<MatchResult> {
     let _ = tls.cmd(&hex::decode("6200000000").unwrap_or_default());
     result
 }
+
+/// Where calibration data is cached between runs.
+pub const CALIB_CACHE_PATH: &str = "/var/lib/validity-rs/calib-data.bin";
+
+impl Calibration {
+    /// Load cached calibration data, if it is present and the right size.
+    ///
+    /// A stale or truncated cache would produce images the on-chip matcher
+    /// silently rejects, so the size is checked against the sensor geometry.
+    pub fn load(cfg: &SensorConfig) -> Option<Self> {
+        let data = std::fs::read(CALIB_CACHE_PATH).ok()?;
+        let expected =
+            (cfg.type_info.lines_per_calibration_data * cfg.bytes_per_line) as usize;
+        if data.len() != expected {
+            return None;
+        }
+        Some(Self { calib_data: data })
+    }
+
+    pub fn save(&self) -> Result<()> {
+        if let Some(dir) = std::path::Path::new(CALIB_CACHE_PATH).parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(CALIB_CACHE_PATH, &self.calib_data)?;
+        Ok(())
+    }
+
+    /// Use cached calibration if available, otherwise calibrate and cache it.
+    pub fn load_or_calibrate(tls: &mut Tls<'_>, cfg: &SensorConfig) -> Result<Self> {
+        if let Some(c) = Self::load(cfg) {
+            return Ok(c);
+        }
+        let mut c = Self::default();
+        c.calibrate(tls, cfg)?;
+        // A cache write failure is not fatal; it only costs time next run.
+        let _ = c.save();
+        Ok(c)
+    }
+}
