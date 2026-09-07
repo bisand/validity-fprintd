@@ -32,7 +32,9 @@ systemctl mask fprintd.service
 
 echo "--- starting validity-fprintd ---"
 systemctl daemon-reload
-systemctl enable --now validity-fprintd.service
+systemctl enable validity-fprintd.service
+# Restart rather than start, so reinstalling picks up a rebuilt binary.
+systemctl restart validity-fprintd.service
 
 sleep 2
 echo

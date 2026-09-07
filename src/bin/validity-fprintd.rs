@@ -59,6 +59,9 @@ impl Manager {
 struct DeviceState {
     /// The user whose fingerprints this claim is for.
     claimed_by: Option<String>,
+    /// Unique bus name of the client holding the claim, so an abandoned claim
+    /// can be reclaimed once that client is gone.
+    claim_owner: Option<String>,
     busy: bool,
 }
 
@@ -86,22 +89,36 @@ impl Device {
         "press".to_string()
     }
 
-    async fn claim(&self, username: String) -> zbus::fdo::Result<()> {
+    async fn claim(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+        username: String,
+    ) -> zbus::fdo::Result<()> {
+        let sender = hdr.sender().map(|s| s.to_string());
         let mut state = self.state.lock().await;
-        if let Some(existing) = &state.claimed_by {
-            if existing != &username {
+
+        // An existing claim only blocks a new one while its owner is still on
+        // the bus. Clients that crashed or exited without calling Release
+        // would otherwise wedge the device until the daemon restarts.
+        if let (Some(existing_user), Some(owner)) = (&state.claimed_by, &state.claim_owner) {
+            if sender.as_deref() != Some(owner.as_str()) && peer_is_alive(conn, owner).await {
                 return Err(zbus::fdo::Error::Failed(format!(
-                    "device already claimed by {existing}"
+                    "device already claimed by {existing_user}"
                 )));
             }
         }
+
         state.claimed_by = Some(resolve_user(&username));
+        state.claim_owner = sender;
+        state.busy = false;
         Ok(())
     }
 
     async fn release(&self) -> zbus::fdo::Result<()> {
         let mut state = self.state.lock().await;
         state.claimed_by = None;
+        state.claim_owner = None;
         state.busy = false;
         Ok(())
     }
@@ -279,6 +296,20 @@ impl Device {
     #[zbus(signal)]
     async fn enroll_status(ctxt: &SignalContext<'_>, result: &str, done: bool)
         -> zbus::Result<()>;
+}
+
+/// Is `name` still present on the bus?
+///
+/// Errors are treated as "gone": failing open here means a stale claim can be
+/// taken over, which is far better than wedging the device.
+async fn peer_is_alive(conn: &zbus::Connection, name: &str) -> bool {
+    let Ok(proxy) = zbus::fdo::DBusProxy::new(conn).await else {
+        return false;
+    };
+    let Ok(bus_name) = zbus::names::BusName::try_from(name.to_string()) else {
+        return false;
+    };
+    proxy.name_has_owner(bus_name).await.unwrap_or(false)
 }
 
 /// fprintd clients pass an empty username to mean "the calling user".
