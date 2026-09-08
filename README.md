@@ -195,7 +195,10 @@ without a terminal for `sudo` to prompt on, download it first and run
 `sudo sh install.sh`.
 
 Release binaries are statically linked against musl with libusb built in, so
-they do not depend on the host's libc or libusb version.
+they do not depend on the host's libc or libusb version. The `musl` in the
+file name is the build target, not a requirement: the binaries carry it
+internally and run on glibc distributions unchanged. You do not need musl
+installed.
 
 | Distribution | Daemon | Login via PAM | Package providing `pam_fprintd` |
 |---|---|---|---|
@@ -401,6 +404,9 @@ software does, because most drivers do not do it:
   it before you reset anything.
 - Destructive operations sit behind an explicit flag and a typed confirmation.
   Nothing writes to the sensor unless you ask it to.
+- Users are looked up in `/etc/passwd` directly, because the release binaries
+  are statically linked and cannot use glibc's NSS. Accounts that exist only
+  in LDAP, SSSD or systemd-homed will not resolve.
 - It has been exercised on **one sensor, one machine, one distribution**
   (`06cb:009a`, ThinkPad X1 Carbon 6th gen, Arch). The type-2 capture path has
   never run at all, and the aarch64 binaries have never been executed.
