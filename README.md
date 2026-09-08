@@ -174,6 +174,14 @@ cargo build --release
 
 ## Installing
 
+### Which method to use
+
+Prefer a native package where one exists: it links against your distribution's
+own libusb, so security fixes arrive with your normal updates. The Arch package
+below does this. The install script is for distributions without a package yet;
+it ships static binaries, which cannot pick up a system library fix without a
+new release.
+
 ### Quick install (any distribution)
 
 ```sh
