@@ -17,9 +17,8 @@ all work unchanged — fingerprint login for sudo, polkit and the lock screen.
 
 ## Install
 
-Assets live on the [latest release](https://github.com/bisand/validity-fprintd/releases/latest).
-The examples below use `0.1.1` and `x86_64`/`amd64`; substitute the current
-version, and `aarch64`/`arm64` on ARM.
+The URLs below always point at the [latest release](https://github.com/bisand/validity-fprintd/releases/latest).
+They are for x86-64; on ARM substitute `aarch64` (or `arm64` for the `.deb`).
 
 ### Install script (any distribution)
 
@@ -40,32 +39,28 @@ before running it as root, download it first and run `sudo sh install.sh`.
 ### Debian / Ubuntu
 
 ```sh
-V=0.1.1
-curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd_${V}_amd64.deb
-sudo apt install ./validity-fprintd_${V}_amd64.deb
+curl -fLO https://github.com/bisand/validity-fprintd/releases/latest/download/validity-fprintd_amd64.deb
+sudo apt install ./validity-fprintd_amd64.deb
 ```
 
 ### Fedora / RHEL
 
 ```sh
-V=0.1.1
-sudo dnf install https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd-$V-1.x86_64.rpm
+sudo dnf install https://github.com/bisand/validity-fprintd/releases/latest/download/validity-fprintd.x86_64.rpm
 ```
 
 ### Arch / Omarchy
 
 ```sh
-V=0.1.1
-curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd-$V-1-x86_64.pkg.tar.zst
-sudo pacman -U ./validity-fprintd-$V-1-x86_64.pkg.tar.zst
+curl -fLO https://github.com/bisand/validity-fprintd/releases/latest/download/validity-fprintd-x86_64.pkg.tar.zst
+sudo pacman -U ./validity-fprintd-x86_64.pkg.tar.zst
 ```
 
 ### Alpine
 
 ```sh
-V=0.1.1
-curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd_${V}_x86_64.apk
-sudo apk add --allow-untrusted ./validity-fprintd_${V}_x86_64.apk
+curl -fLO https://github.com/bisand/validity-fprintd/releases/latest/download/validity-fprintd_x86_64.apk
+sudo apk add --allow-untrusted ./validity-fprintd_x86_64.apk
 ```
 
 The packages are unsigned, hence `--allow-untrusted`. Check the download
@@ -75,10 +70,9 @@ install script does.
 ### Tarball (no package manager)
 
 ```sh
-V=0.1.1
-curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd-$V-x86_64-unknown-linux-musl.tar.gz
-tar xzf validity-fprintd-$V-x86_64-unknown-linux-musl.tar.gz
-cd validity-fprintd-$V-x86_64-unknown-linux-musl
+curl -fLO https://github.com/bisand/validity-fprintd/releases/latest/download/validity-fprintd-x86_64-unknown-linux-musl.tar.gz
+tar xzf validity-fprintd-x86_64-unknown-linux-musl.tar.gz
+cd validity-fprintd-*-x86_64-unknown-linux-musl
 sudo install -m755 bin/* /usr/local/bin/
 sudo install -m644 share/70-validity-fprintd.rules /etc/udev/rules.d/
 sudo install -m644 share/validity-fprintd.service /etc/systemd/system/

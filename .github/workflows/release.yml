@@ -154,6 +154,28 @@ jobs:
             fi
           done
 
+      # Copies without the version in the name, so documentation can link to
+      # https://github.com/.../releases/latest/download/<name> and never go
+      # stale. Same bytes, second name.
+      - name: Add version-less aliases
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          cd out
+          VESC=$(printf '%s' "$VERSION" | sed 's/\./\\./g')
+          for f in *; do
+            alias=$(printf '%s' "$f" | sed \
+              -e "s/_${VESC}_/_/" \
+              -e "s/-${VESC}-1-/-/" \
+              -e "s/-${VESC}-1\./\./" \
+              -e "s/-${VESC}-/-/")
+            if [ "$alias" != "$f" ]; then
+              cp "$f" "$alias"
+              echo "$f -> $alias"
+            fi
+          done
+          ls -1
+
       - name: Checksum every artifact
         run: |
           # One checksum file per target; the publish job concatenates them.
