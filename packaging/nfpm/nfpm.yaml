@@ -1,6 +1,10 @@
 # nfpm config for the .deb / .rpm / .apk / .pkg.tar.zst release assets.
 #
-#   VERSION=0.1.1 ARCH=amd64 BINDIR=dist/bin nfpm package -f packaging/nfpm/nfpm.yaml -p deb -t out/
+#   Stage the binaries in ./dist/bin and the service files in ./dist, then:
+#   VERSION=0.1.1 ARCH=amd64 nfpm package -f packaging/nfpm/nfpm.yaml -p deb -t out/
+#
+# Paths here are literal: nfpm expands environment variables in fields like
+# version and arch, but not inside contents[].src.
 #
 # These packages carry the statically linked binaries, so one artifact works on
 # every version of a distribution family. That trades away using the system
@@ -33,23 +37,23 @@ depends:
   - dbus
 
 contents:
-  - src: ${BINDIR}/validity-fprintd
+  - src: ./dist/bin/validity-fprintd
     dst: /usr/bin/validity-fprintd
-  - src: ${BINDIR}/validity-probe
+  - src: ./dist/bin/validity-probe
     dst: /usr/bin/validity-probe
-  - src: ${BINDIR}/validity-session
+  - src: ./dist/bin/validity-session
     dst: /usr/bin/validity-session
-  - src: ${BINDIR}/validity-db
+  - src: ./dist/bin/validity-db
     dst: /usr/bin/validity-db
-  - src: ${BINDIR}/validity-sensor
+  - src: ./dist/bin/validity-sensor
     dst: /usr/bin/validity-sensor
-  - src: ${BINDIR}/validity-verify
+  - src: ./dist/bin/validity-verify
     dst: /usr/bin/validity-verify
-  - src: ${BINDIR}/validity-baseline
+  - src: ./dist/bin/validity-baseline
     dst: /usr/bin/validity-baseline
-  - src: ${BINDIR}/validity-firmware
+  - src: ./dist/bin/validity-firmware
     dst: /usr/bin/validity-firmware
-  - src: ${BINDIR}/validity-provision
+  - src: ./dist/bin/validity-provision
     dst: /usr/bin/validity-provision
 
   - src: ./udev/70-validity-fprintd.rules

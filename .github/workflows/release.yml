@@ -88,9 +88,13 @@ jobs:
                 validity-sensor validity-verify validity-baseline
                 validity-firmware validity-provision"
 
-          mkdir -p "dist/$NAME/bin" "dist/$NAME/share" out
+          # dist/$NAME is the tarball layout; dist/bin is where nfpm.yaml looks,
+          # which uses literal paths because nfpm does not expand variables in
+          # contents[].src.
+          mkdir -p "dist/$NAME/bin" "dist/$NAME/share" dist/bin out
           for b in $BINS; do
             cp "target/${{ matrix.target }}/release/$b" "dist/$NAME/bin/"
+            cp "target/${{ matrix.target }}/release/$b" "dist/bin/"
           done
 
           cp packaging/validity-fprintd.service "dist/$NAME/share/"
@@ -120,7 +124,6 @@ jobs:
       - name: Build native packages
         env:
           VERSION: ${{ steps.package.outputs.version }}
-          BINDIR: dist/${{ steps.package.outputs.name }}/bin
         run: |
           NFPM_VERSION="$(curl -sfL https://api.github.com/repos/goreleaser/nfpm/releases/latest \
             | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
@@ -139,6 +142,17 @@ jobs:
             nfpm package -f packaging/nfpm/nfpm.yaml -p "$fmt" -t out/
           done
           ls -l out/
+
+          # The static daemon alone is over 5 MB, so a package much smaller than
+          # that has lost its binaries. nfpm reports success either way.
+          for p in out/*.deb out/*.rpm out/*.apk out/*.pkg.tar.zst; do
+            [ -f "$p" ] || continue
+            size=$(stat -c%s "$p")
+            if [ "$size" -lt 2000000 ]; then
+              echo "::error::$p is only $size bytes; the binaries are missing"
+              exit 1
+            fi
+          done
 
       - name: Checksum every artifact
         run: |
