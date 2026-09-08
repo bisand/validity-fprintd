@@ -1,11 +1,16 @@
-# nfpm config for the .deb / .rpm / .apk release assets.
+# nfpm config for the .deb / .rpm / .apk / .pkg.tar.zst release assets.
 #
-#   VERSION=0.1.0 ARCH=amd64 BINDIR=dist/bin nfpm package -f packaging/nfpm/nfpm.yaml -p deb -t out/
+#   VERSION=0.1.1 ARCH=amd64 BINDIR=dist/bin nfpm package -f packaging/nfpm/nfpm.yaml -p deb -t out/
 #
 # These packages carry the statically linked binaries, so one artifact works on
 # every version of a distribution family. That trades away using the system
 # libusb; the recipes in packaging/{aur,fedora,alpine} link dynamically and are
 # the right thing for a distribution's own repository.
+#
+# Per-file `packager:` selects which format an entry goes into. Do not use
+# `overrides.<fmt>.contents` for this: an override replaces the whole contents
+# list rather than adding to it, which would ship a package with nothing but
+# the service file in it.
 
 name: validity-fprintd
 arch: ${ARCH}
@@ -58,25 +63,34 @@ contents:
   - src: ./LICENSE
     dst: /usr/share/doc/validity-fprintd/LICENSE
 
+  # systemd distributions get the unit.
+  - src: ./dist/validity-fprintd.service
+    dst: /usr/lib/systemd/system/validity-fprintd.service
+    packager: deb
+  - src: ./dist/validity-fprintd.service
+    dst: /usr/lib/systemd/system/validity-fprintd.service
+    packager: rpm
+  - src: ./dist/validity-fprintd.service
+    dst: /usr/lib/systemd/system/validity-fprintd.service
+    packager: archlinux
+
+  # Alpine uses OpenRC.
+  - src: ./dist/validity-fprintd.openrc
+    dst: /etc/init.d/validity-fprintd
+    file_info:
+      mode: 0755
+    packager: apk
+
 scripts:
   postinstall: ./packaging/nfpm/postinstall.sh
   preremove: ./packaging/nfpm/preremove.sh
   postremove: ./packaging/nfpm/postremove.sh
 
 overrides:
-  # systemd distributions get the unit.
-  deb:
-    contents:
-      - src: ./dist/validity-fprintd.service
-        dst: /usr/lib/systemd/system/validity-fprintd.service
-  rpm:
-    contents:
-      - src: ./dist/validity-fprintd.service
-        dst: /usr/lib/systemd/system/validity-fprintd.service
-  # Alpine uses OpenRC.
-  apk:
-    contents:
-      - src: ./dist/validity-fprintd.openrc
-        dst: /etc/init.d/validity-fprintd
-        file_info:
-          mode: 0755
+  # The AUR recipe builds the same software against the system libusb, so only
+  # one of the two should ever be installed.
+  archlinux:
+    conflicts:
+      - validity-fprintd-git
+    provides:
+      - validity-fprintd

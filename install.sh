@@ -46,6 +46,8 @@ detect_pkg_fmt() {
     [ "${FORCE_TARBALL:-}" = "1" ] && { echo tar; return; }
     if command -v apk >/dev/null 2>&1; then
         echo apk
+    elif command -v pacman >/dev/null 2>&1; then
+        echo archlinux
     elif command -v dpkg >/dev/null 2>&1; then
         echo deb
     elif command -v rpm >/dev/null 2>&1; then
@@ -117,6 +119,8 @@ uninstall() {
         else
             dpkg -r validity-fprintd && removed=deb
         fi
+    elif command -v pacman >/dev/null 2>&1 && pacman -Qi validity-fprintd >/dev/null 2>&1; then
+        pacman -R --noconfirm validity-fprintd && removed=pacman
     elif command -v rpm >/dev/null 2>&1 && rpm -q validity-fprintd >/dev/null 2>&1; then
         if command -v dnf >/dev/null 2>&1; then
             dnf -y remove validity-fprintd && removed=rpm
@@ -197,7 +201,12 @@ verify() {
 
 ASSET=""
 if [ "$FMT" != "tar" ]; then
-    ASSET="$(find_asset "$FMT" "$(pkg_arch "$FMT")")"
+    # Arch packages end in .pkg.tar.zst rather than a bare format name.
+    case "$FMT" in
+        archlinux) EXT="pkg.tar.zst" ;;
+        *)         EXT="$FMT" ;;
+    esac
+    ASSET="$(find_asset "$EXT" "$(pkg_arch "$FMT")")"
     # No package published for this format or architecture; use the tarball.
     [ -n "$ASSET" ] || FMT=tar
 fi
@@ -239,6 +248,9 @@ if [ "$FMT" != "tar" ]; then
         apk)
             # nfpm does not sign its output, so the key is not in apk's keyring.
             apk add --allow-untrusted "$TMP/$ASSET"
+            ;;
+        archlinux)
+            pacman -U --noconfirm "$TMP/$ASSET"
             ;;
     esac
 

@@ -135,7 +135,7 @@ jobs:
             *) echo "::error::no package arch for ${{ matrix.target }}"; exit 1 ;;
           esac
 
-          for fmt in deb rpm apk; do
+          for fmt in deb rpm apk archlinux; do
             nfpm package -f packaging/nfpm/nfpm.yaml -p "$fmt" -t out/
           done
           ls -l out/
