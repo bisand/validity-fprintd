@@ -110,12 +110,6 @@ jobs:
           sed 's|/usr/local/bin/|/usr/bin/|' packaging/openrc/validity-fprintd \
             > dist/validity-fprintd.openrc
 
-          # Individual binaries as well, so a single tool can be downloaded
-          # without the tarball. Suffixed so architectures do not collide.
-          for b in $BINS; do
-            cp "dist/$NAME/bin/$b" "out/${b}-${{ matrix.target }}"
-          done
-
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
