@@ -1,28 +1,245 @@
 # validity-fprintd
 
-A Rust driver for Synaptics/Validity **match-on-chip** fingerprint sensors — the
-family found in ThinkPads and other laptops that stock `libfprint` does not
-support, so `fprintd` reports *"No devices available"* on every distribution.
+**Makes Synaptics/Validity match-on-chip fingerprint sensors work on Linux.**
 
-Developed against a ThinkPad X1 Carbon 6th gen (`06cb:009a`, "Metallica MIS").
-
-## What it looks like
-
-![validity-fprintd capturing a fingerprint and matching it on the sensor](docs/demo.gif)
-
-Stock `fprintd` finds no device; this driver identifies the sensor, calibrates
-it, captures a print and matches it on the chip.
-
-
-Before, with stock `libfprint` — the sensor is on the bus, but no driver claims it:
+These sensors ship in ThinkPads and other laptops, and stock `libfprint` has no
+driver for them — so on every distribution `fprintd` says this:
 
 ```console
 $ fprintd-list $USER
 Impossible to list devices: GDBus.Error:net.reactivated.Fprint.Error.NoSuchDevice: No devices available
 ```
 
-After. The sensor identifies itself, and its pairing record decrypts against
-this machine:
+`validity-fprintd` is a Rust driver and a drop-in replacement for the `fprintd`
+daemon. It speaks the sensor's own protocol, and serves the same D-Bus
+interface, so `pam_fprintd`, GNOME and KDE settings, and the `fprintd-*` tools
+all work unchanged — fingerprint login for sudo, polkit and the lock screen.
+
+![validity-fprintd capturing a fingerprint and matching it on the sensor](docs/demo.gif)
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
+```
+
+Installs the native package for your distribution — `.deb`, `.rpm`, `.apk` or
+`.pkg.tar.zst` — so removal goes through your package manager. Where there is no
+package it unpacks a tarball into `/usr/local` instead. Every download is
+checked against the release's `SHA256SUMS`, and it refuses to install if that
+cannot be fetched or does not match.
+
+Then enable it, replacing the stock daemon — both claim the
+`net.reactivated.Fprint` D-Bus name and cannot run together:
+
+```sh
+sudo systemctl mask --now fprintd.service
+sudo systemctl enable --now validity-fprintd.service
+```
+
+Check that your sensor is recognised:
+
+```sh
+sudo systemctl stop validity-fprintd && sudo validity-probe; sudo systemctl start validity-fprintd
+```
+
+Uninstall with `curl -fsSL … | sudo sh -s -- --uninstall`, and pass
+`FORCE_TARBALL=1` to skip the package where one applies. To read the script
+before running it as root, download it first and run `sudo sh install.sh`.
+
+### Fingerprint login
+
+The driver serves the D-Bus interface; the PAM module itself comes from your
+distribution's `fprintd` package:
+
+| Distribution | Package providing `pam_fprintd` | Service manager |
+|---|---|---|
+| Arch / Omarchy | `fprintd` | systemd |
+| Debian / Ubuntu | `libpam-fprintd` | systemd |
+| Fedora | `fprintd-pam` | systemd |
+| Alpine | `fprintd-pam` (community) | OpenRC |
+
+Enrol a finger and wire up PAM:
+
+```sh
+sudo fprintd-enroll "$USER"          # or: omarchy setup security fingerprint
+```
+
+On Omarchy that one command enrols, verifies and writes the PAM configuration
+for sudo, polkit and the lock screen. On Fedora, use
+`sudo authselect enable-feature with-fingerprint`. Elsewhere, add
+`auth sufficient pam_fprintd.so` above the password line in the relevant files
+in `/etc/pam.d/`.
+
+Keep it **`sufficient`**, not `required`, so a failed or unavailable fingerprint
+falls through to your password.
+
+### Will it work with my sensor?
+
+| USB ID | Name | Tested |
+|---|---|---|
+| `06cb:009a` | Synaptics Metallica MIS | yes |
+| `138a:0090` | Validity VFS7500 | no |
+| `138a:0097` | Validity VFS7552 | no |
+| `138a:009d` | Validity VFS7552 | no |
+
+`validity-probe` reports one of three states:
+
+- **Paired to this host** — ready to use. A sensor previously used with
+  **Windows Hello**, or with python-validity, is already in this state: pairing
+  keys derive from the machine's DMI identity, which is the same under either
+  OS, so a Windows-paired sensor opens fine on the same laptop.
+- **Unpaired** — factory-fresh or reset. It can be provisioned from scratch;
+  see below.
+- **Paired to another host** — the sensor came from a different machine. Using
+  it needs a factory reset.
+
+### Other ways to install
+
+Native packages built from source link your distribution's own libusb, so a
+libusb security fix arrives with your normal updates. The release packages
+above bundle it instead, which is what lets one artifact work on every version
+of a distribution family.
+
+<details>
+<summary>Arch, Fedora, Alpine and from-source builds</summary>
+
+**Arch** — the `-git` PKGBUILD is in the repository, so no AUR account is
+needed. It conflicts with `python-validity` and `open-fprintd`.
+
+```sh
+git clone https://github.com/bisand/validity-fprintd.git
+cd validity-fprintd/packaging/aur && makepkg -si
+```
+
+**Fedora**
+
+```sh
+rpmbuild -ba validity-fprintd/packaging/fedora/validity-fprintd.spec
+sudo dnf install ~/rpmbuild/RPMS/*/validity-fprintd-*.rpm
+```
+
+**Alpine** — the service is in the `validity-fprintd-openrc` subpackage.
+
+```sh
+cd validity-fprintd/packaging/alpine && abuild -r
+```
+
+**From source**
+
+```sh
+cargo build --release
+sudo ./scripts/install.sh      # binaries, systemd unit, udev rules; masks fprintd
+sudo ./scripts/uninstall.sh    # removal, including PAM rules
+```
+
+The Fedora and Alpine recipes have not been built by the author, who has only
+Arch hardware. Corrections welcome.
+
+</details>
+
+## Provisioning a bare sensor
+
+Only needed if `validity-probe` reports **unpaired**. The firmware blob is
+proprietary and cannot be shipped, so it is extracted from Lenovo's Windows
+driver installer. Fetch it first — the sensor cannot capture without it.
+
+```sh
+sudo systemctl stop validity-fprintd          # it holds the USB interface
+
+sudo /usr/share/validity-fprintd/fetch-firmware.sh
+sudo validity-provision --init-flash          # partition flash, pair to this machine
+sudo validity-firmware --upload               # install the firmware extension
+sudo validity-baseline --write                # capture the calibration baseline
+
+sudo systemctl start validity-fprintd
+sudo fprintd-enroll "$USER"
+```
+
+`validity-provision --factory-reset` returns a sensor to its bare state,
+erasing the pairing record, every enrolment and the calibration baseline. It
+requires a typed confirmation. There is no reason to run it on a working
+sensor.
+
+## Status
+
+Verified against real hardware on a ThinkPad X1 Carbon 6th gen (`06cb:009a`).
+The whole provisioning chain was exercised by factory-resetting a working
+sensor and rebuilding it from nothing — partition table, firmware, pairing
+record, calibration baseline and enrolments — ending in a working fingerprint
+`sudo`.
+
+| Capability | Status |
+|---|---|
+| USB transport, signed init handshake | Verified |
+| Pairing-record parsing, host key derivation, sensor authentication | Verified |
+| Encrypted session (the firmware's TLS 1.2 dialect) | Verified |
+| Flash access, on-chip enrolment database (read and write) | Verified |
+| Sensor identification, calibration, image capture | Verified |
+| On-chip matching, enrolment, deletion | Verified |
+| `fprintd`-compatible D-Bus daemon | Verified |
+| Calibration baseline, firmware upload, flash partitioning, factory reset | Verified |
+| Type-2 sensor capture path | **Untested** |
+| aarch64 binaries | **Never executed** |
+
+The type-2 capture path is transcribed from the reference implementation and
+compiles, but no type-2 hardware was available. It also needs factory
+calibration data (subtag 7), which type-1 sensors do not report.
+
+## Warranty and risk
+
+There is none: this is MIT-licensed and provided as is, without warranty of any
+kind. See [LICENSE](LICENSE). Beyond the boilerplate, it is worth being
+concrete, because most drivers do not do what this one does:
+
+- It **writes to the sensor's flash** — firmware, the pairing record, the
+  calibration baseline and the enrolment database. Those writes are how a bare
+  sensor is made to work at all.
+- `--factory-reset` **erases the pairing record, every enrolled fingerprint and
+  the calibration baseline.** Recovery means reprovisioning, which needs the
+  Lenovo firmware blob. Fetch it before you reset anything.
+- Destructive operations sit behind an explicit flag and a typed confirmation.
+  Nothing writes to the sensor unless you ask it to.
+- Users are looked up in `/etc/passwd` directly, because the release binaries
+  are statically linked and cannot use glibc's NSS. Accounts existing only in
+  LDAP, SSSD or systemd-homed will not resolve.
+- It has run on **one sensor, one machine, one distribution**. Other
+  distributions are supported by construction rather than by testing.
+
+A fingerprint is a convenience, not a stronger factor than the password behind
+it. If you would rather not rely on it, leave PAM alone and use the CLI tools.
+
+## Tools
+
+Read-only unless noted. The daemon holds the USB interface, so stop it first:
+
+```sh
+sudo systemctl stop validity-fprintd
+sudo validity-probe
+sudo systemctl start validity-fprintd
+```
+
+| Tool | Shows |
+|---|---|
+| `validity-probe` | device, firmware, flash layout, pairing state |
+| `validity-session` | opens an encrypted session, reads the partition table back |
+| `validity-db` | storage objects, users and enrolled fingers |
+| `validity-sensor` | sensor identity, geometry, capture-program selection |
+| `validity-verify` | calibrates, captures a fingerprint, matches it on-chip |
+| `validity-baseline` | inspects and verifies the calibration baseline |
+| `validity-firmware` | inspects the firmware extension |
+| `validity-provision` | reports provisioning state |
+
+Writing variants, for unprovisioned sensors: `validity-baseline --write`,
+`validity-firmware --upload`, `validity-provision --init-flash`, and
+`validity-provision --factory-reset` (destructive).
+
+Root is required for raw USB access and to read
+`/sys/class/dmi/id/product_serial`, which the pairing keys derive from. Pass
+`--trace` for a hex dump of the wire traffic.
+
+<details>
+<summary>Example output</summary>
 
 ```console
 $ sudo validity-probe
@@ -38,7 +255,6 @@ Pairing record blocks:
   id 0x0003  184 bytes
   id 0x0006  400 bytes
 
-Host        : 20KH003BMX / serial ****6GM6
 Status      : PAIRED TO THIS HOST
   The sensor's private key decrypted and authenticated.
   A TLS session can be established without re-pairing.
@@ -51,10 +267,9 @@ $ sudo validity-db
 Database    : 524288 bytes total, 71168 used, 313088 free, 15 records
 Storage     : 'StgWindsor' (dbid 3), 1 user(s)
 
-User 4 — identity S-1-5-21-111111111-1111111111-1111111111-1000
+User 4 — identity S-1-5-21-…-1000
   finger dbid    6  subtype 0x03 (right-middle-finger)  23064 bytes
-  finger dbid    8  subtype 0x07 (left-index-finger)  23080 bytes
-  finger dbid    9  subtype 0x02 (right-index-finger)  23064 bytes
+  finger dbid    9  subtype 0x02 (right-index-finger)   23064 bytes
 ```
 
 Matching happens on the chip; the host never sees image data:
@@ -62,7 +277,6 @@ Matching happens on the chip; the host never sees image data:
 ```console
 $ sudo validity-verify
 Sensor      : 57K0 FM-3367-001 (type 0x0199)
-Enrolled    : 3 finger(s) across 1 user(s)
 Baseline    : valid clean-slate image present on sensor flash
 Calibrating (3 iterations)... 13440 bytes of calibration data
 
@@ -71,9 +285,7 @@ Calibrating (3 iterations)... 13440 bytes of calibration data
 Captured    : x=112 y=112 w1=333 w2=8
 
 MATCH
-  user dbid : 4
   finger    : 0x02 (right-index-finger)
-  identity  : S-1-5-21-111111111-1111111111-1111111111-1000
 ```
 
 And through PAM, which is the point of the whole exercise:
@@ -83,311 +295,14 @@ $ sudo -k && sudo ls
 Place your finger on the fingerprint reader
 Cargo.toml  LICENSE  README.md  packaging  scripts  src  udev
 
-$ journalctl -u validity-fprintd -n 5 --no-pager
+$ journalctl -u validity-fprintd -n 4 --no-pager
 session: opened with 57K0 FM-3367-001 (type 0x0199)
 calibration: loaded 13440 bytes from cache
-claim: bisand
 verify: bisand matched right-index-finger
 verify: verify-match after 1.9s
 ```
 
-## Status
-
-Working and verified against real hardware on a ThinkPad X1 Carbon 6th gen
-(`06cb:009a`). It provisions a bare sensor, enrols, verifies, and authenticates
-sudo, polkit and the lock screen through the stock `pam_fprintd`.
-
-| Capability | Status |
-|---|---|
-| USB transport, signed init handshake | Verified |
-| Pairing-record parsing, host key derivation, sensor authentication | Verified |
-| Encrypted session (the firmware's TLS 1.2 dialect) | Verified |
-| Flash access, on-chip enrolment database (read and write) | Verified |
-| Sensor identification, calibration, image capture | Verified |
-| On-chip matching, enrolment, deletion | Verified |
-| `fprintd`-compatible D-Bus daemon | Verified |
-| Calibration baseline: read, verify, encode, write | Verified |
-| Firmware extension upload | Verified |
-| Flash partitioning and pairing (`--init-flash`) | Verified |
-| Factory reset | Verified |
-| Type-2 sensor capture path | **Untested** |
-
-The whole provisioning chain was exercised by factory-resetting a working
-sensor and rebuilding it from nothing: partition table, firmware, pairing
-record, calibration baseline and enrolments, ending in a working fingerprint
-`sudo`. Every step is reproducible with the tools below.
-
-The type-2 capture path remains untested because no type-2 hardware was
-available. It is transcribed from the reference implementation and compiles,
-but has never run. Type-2 sensors will also refuse to capture unless the
-sensor reports factory calibration data (subtag 7), which type-1 sensors do
-not provide.
-
-### Which sensors this works with
-
-- A sensor already provisioned — used with **Windows Hello** or python-validity
-  — works directly. Pairing keys derive from the machine's DMI identity, which
-  is identical under either OS, so a Windows-paired sensor opens fine on the
-  same laptop.
-- A **factory-fresh or reset** sensor can be provisioned from scratch; see
-  below. This needs the firmware blob from Lenovo's driver installer.
-
-Only sensor type `0x199` has been exercised on hardware.
-
-## Provisioning a bare sensor
-
-Needed only if `validity-provision` reports unformatted flash or an unpaired
-sensor. Get the firmware first, since the sensor cannot capture without it:
-
-```sh
-sudo ./scripts/fetch-firmware.sh              # download and extract from Lenovo
-sudo validity-provision --init-flash          # partition flash, pair to this machine
-sudo validity-firmware --upload               # install the firmware extension
-sudo validity-baseline --write                # capture the calibration baseline
-omarchy setup security fingerprint            # enrol and configure PAM
-```
-
-Stop the daemon first (`sudo systemctl stop validity-fprintd`), since it holds
-the USB interface.
-
-`validity-provision --factory-reset` returns a sensor to its bare state. It
-erases the pairing record, every enrolment and the calibration baseline, and
-requires a typed confirmation. There is no reason to run it on a working
-sensor.
-
-## Supported devices
-
-| USB ID | Name |
-|---|---|
-| `138a:0090` | Validity VFS7500 |
-| `138a:0097` | Validity VFS7552 |
-| `138a:009d` | Validity VFS7552 |
-| `06cb:009a` | Synaptics Metallica MIS |
-
-Only `06cb:009a` has been tested on hardware.
-
-## Building
-
-```sh
-cargo build --release
-```
-
-## Installing
-
-### Which method to use
-
-The install script is the quickest route and installs a native package where
-one exists. Those packages carry statically linked binaries, so one artifact
-works on every version of a distribution family, at the cost of bundling libusb
-rather than using the system copy.
-
-If you would rather link the system libusb — so a libusb security fix arrives
-with your normal updates — build from the recipes in `packaging/`, which exist
-for Arch, Fedora and Alpine. That is also what belongs in a distribution's own
-repository.
-
-### Quick install (any distribution)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
-```
-
-Installs the native package for your distribution where there is one — `.deb`,
-`.rpm` or `.apk` — so removal goes through your package manager. Where there is
-not, it falls back to unpacking a tarball into `/usr/local`. Either way every
-download is checked against the release's `SHA256SUMS`, and it refuses to
-install if that cannot be fetched or does not match.
-
-Pass `FORCE_TARBALL=1` to skip the package even where one applies.
-
-Uninstall:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh -s -- --uninstall
-```
-
-To read the script before running it as root, or to install from somewhere
-without a terminal for `sudo` to prompt on, download it first and run
-`sudo sh install.sh`.
-
-Release binaries are statically linked against musl with libusb built in, so
-they do not depend on the host's libc or libusb version. The `musl` in the
-file name is the build target, not a requirement: the binaries carry it
-internally and run on glibc distributions unchanged. You do not need musl
-installed.
-
-| Distribution | Daemon | Login via PAM | Package providing `pam_fprintd` |
-|---|---|---|---|
-| Arch / Omarchy | systemd | yes | `fprintd` |
-| Ubuntu / Debian | systemd | yes | `libpam-fprintd` |
-| Fedora | systemd | yes | `fprintd-pam` |
-| Alpine | OpenRC | yes | `fprintd-pam` (community) |
-
-This driver replaces `fprintd` itself; the package above is still needed for
-`pam_fprintd.so` and the `fprintd-*` client tools. The installer masks or
-disables the conflicting `fprintd` service, since both claim the
-`net.reactivated.Fprint` D-Bus name.
-
-Only `06cb:009a` has been tested on hardware, on Arch. Other distributions are
-supported by construction rather than by testing.
-
-### Building the Arch package
-
-The `-git` PKGBUILD lives in this repository, so no AUR account is needed:
-
-```sh
-git clone https://github.com/bisand/validity-fprintd.git
-cd validity-fprintd/packaging/aur
-makepkg -si
-```
-
-Then enable it. Masking `fprintd` is required — both claim the
-`net.reactivated.Fprint` D-Bus name, and masking also stops D-Bus activating
-it:
-
-```sh
-sudo systemctl mask --now fprintd.service
-sudo systemctl enable --now validity-fprintd.service
-```
-
-The package conflicts with `python-validity` and `open-fprintd` for the same
-reason.
-
-An AUR submission (`validity-fprintd-git`) is planned; AUR account registration
-is paused upstream at the time of writing.
-
-### Building the Fedora package
-
-```sh
-git clone https://github.com/bisand/validity-fprintd.git
-rpmbuild -ba validity-fprintd/packaging/fedora/validity-fprintd.spec
-sudo dnf install ~/rpmbuild/RPMS/*/validity-fprintd-*.rpm
-```
-
-Fingerprint login on Fedora is wired up with
-`sudo authselect enable-feature with-fingerprint`.
-
-### Building the Alpine package
-
-```sh
-git clone https://github.com/bisand/validity-fprintd.git
-cd validity-fprintd/packaging/alpine
-abuild -r
-```
-
-Alpine uses OpenRC, so the service comes from the `validity-fprintd-openrc`
-subpackage. `pam_fprintd` is in `fprintd-pam`.
-
-Both recipes build dynamically against the system libusb. Neither has been
-built or installed by the author, who has only Arch hardware; corrections are
-welcome.
-
-### From source
-
-```sh
-cargo build --release
-sudo ./scripts/install.sh
-```
-
-This installs the daemon and CLI tools, adds a systemd unit and udev rules,
-and masks the stock `fprintd.service` — both claim the `net.reactivated.Fprint`
-bus name, so they cannot run together. It does not touch PAM.
-
-To configure authentication on Omarchy:
-
-```sh
-omarchy setup security fingerprint
-```
-
-That enrols a finger, verifies it, and writes the PAM configuration for sudo,
-polkit and the lock screen. On other distributions, add
-`auth sufficient pam_fprintd.so` to the relevant files in `/etc/pam.d/`.
-
-Removal, including any PAM rules:
-
-```sh
-sudo ./scripts/uninstall.sh
-```
-
-## Building portable release binaries
-
-Release artifacts are static-pie musl binaries with libusb compiled in, so they
-run on any distribution. To reproduce a build locally on Arch:
-
-```sh
-sudo pacman -S musl
-rustup target add x86_64-unknown-linux-musl
-
-CC_x86_64_unknown_linux_musl=musl-gcc \
-CFLAGS_x86_64_unknown_linux_musl="-idirafter /usr/include" \
-RUSTFLAGS="-C target-feature=+crt-static" \
-cargo build --release --target x86_64-unknown-linux-musl --features vendored
-```
-
-`-idirafter` is needed because Arch's `musl-gcc` does not search the Linux uapi
-headers that libusb includes; appending the path leaves musl's own headers
-taking precedence.
-
-Do **not** set `CARGO_TARGET_*_LINKER=musl-gcc`. Doing so produces a dynamic
-PIE that still requires `/lib/ld-musl-x86_64.so.1` at run time and therefore
-fails on any host without musl installed. Letting rustc link with its own
-self-contained CRT objects produces a static-pie instead, which needs nothing
-and keeps ASLR. Verify with:
-
-```sh
-readelf -l target/.../validity-fprintd | grep INTERP   # must print nothing
-readelf -d target/.../validity-fprintd | grep NEEDED   # must print nothing
-```
-
-## Tools
-
-Read-only unless noted.
-
-```sh
-sudo validity-probe      # device, firmware, flash layout and pairing state
-sudo validity-session    # open an encrypted session, read the partition table back
-sudo validity-db         # storage objects, users and enrolled fingers
-sudo validity-sensor     # sensor identity, geometry, capture-program selection
-sudo validity-verify     # calibrate, capture a fingerprint and match it on-chip
-sudo validity-baseline   # inspect and verify the calibration baseline
-sudo validity-firmware   # inspect the firmware extension
-sudo validity-provision  # report provisioning state
-```
-
-The daemon holds the USB interface, so stop it first:
-
-```sh
-sudo systemctl stop validity-fprintd
-sudo validity-probe
-sudo systemctl start validity-fprintd
-```
-
-Writing variants, for unprovisioned sensors only:
-
-```sh
-sudo validity-baseline --write          # capture and store a calibration baseline
-sudo validity-firmware --upload         # install firmware (see fetch-firmware.sh)
-sudo validity-provision --init-flash    # partition flash and pair to this machine
-sudo validity-provision --factory-reset # DESTRUCTIVE, erases everything
-```
-
-The firmware blob is proprietary and cannot be shipped. `scripts/fetch-firmware.sh`
-downloads Lenovo's driver installer, verifies its SHA-512, and extracts it.
-
-Root is required for raw USB access and to read `/sys/class/dmi/id/product_serial`,
-which the pairing keys derive from. Pass `--trace` for a hex dump of the wire
-traffic.
-
-### Pairing states
-
-`validity-probe` reports one of three states:
-
-- **Paired to this host** — the sensor's private key decrypts and authenticates.
-  Sessions work with no writes to the sensor.
-- **Paired to another host** — a pairing record exists but was sealed by a
-  different install, usually Windows Hello. Using the sensor would require a
-  factory reset that rewrites sensor flash.
-- **Unpaired** — no host key; the sensor needs provisioning.
+</details>
 
 ## How it works
 
@@ -411,53 +326,53 @@ deviation is commented at its site in `src/tls.rs`.
 Session keys derive from a static ECDH key pair: the sensor's public point is
 stored in flash and signed by Synaptics' firmware key, and the host's private
 key is stored encrypted under a key derived from the machine's DMI
-`product_name` and `product_serial`. That binding is why a sensor paired under
-one OS install will not open under another.
+`product_name` and `product_serial`. That binding is why a sensor paired to one
+machine will not open on another.
 
-## Making a release
+## Development
 
-Releases are built when a GitHub Release is **published**, not when a tag is
-pushed, so the notes describing what changed are written by hand.
+```sh
+cargo build --release
+```
 
-1. Tag and push the commit to release:
-   `git tag v0.1.0 && git push origin v0.1.0`
-2. Draft a release for that tag on GitHub and write the notes.
-3. Publish it. CI builds both architectures, checks each binary is
-   self-contained, and attaches the tarballs and `SHA256SUMS` to the release.
+<details>
+<summary>Portable release binaries, and cutting a release</summary>
 
-The notes are never overwritten: CI uploads assets to the existing release
-rather than creating one. To check a build without publishing anything, run the
-workflow manually and give it an existing tag.
+Release artifacts are static-pie musl binaries with libusb compiled in, so they
+run on any distribution. To reproduce a build on Arch:
 
-## Warranty and risk
+```sh
+sudo pacman -S musl
+rustup target add x86_64-unknown-linux-musl
 
-There is none: this is MIT-licensed and provided as is, without warranty of
-any kind. See [LICENSE](LICENSE).
+CC_x86_64_unknown_linux_musl=musl-gcc \
+CFLAGS_x86_64_unknown_linux_musl="-idirafter /usr/include" \
+RUSTFLAGS="-C target-feature=+crt-static" \
+cargo build --release --target x86_64-unknown-linux-musl --features vendored
+```
 
-Beyond the legal boilerplate, it is worth being concrete about what this
-software does, because most drivers do not do it:
+`-idirafter` is needed because Arch's `musl-gcc` does not search the Linux uapi
+headers that libusb includes; appending the path leaves musl's own headers
+taking precedence.
 
-- It **writes to the sensor's flash** — firmware, the pairing record, the
-  calibration baseline and the enrolment database. Those writes are how a bare
-  sensor is made to work at all.
-- `validity-provision --factory-reset` **erases the pairing record, every
-  enrolled fingerprint and the calibration baseline**. Recovery means
-  reprovisioning, which needs the firmware blob from Lenovo's installer. Fetch
-  it before you reset anything.
-- Destructive operations sit behind an explicit flag and a typed confirmation.
-  Nothing writes to the sensor unless you ask it to.
-- Users are looked up in `/etc/passwd` directly, because the release binaries
-  are statically linked and cannot use glibc's NSS. Accounts that exist only
-  in LDAP, SSSD or systemd-homed will not resolve.
-- It has been exercised on **one sensor, one machine, one distribution**
-  (`06cb:009a`, ThinkPad X1 Carbon 6th gen, Arch). The type-2 capture path has
-  never run at all, and the aarch64 binaries have never been executed.
+Do **not** set `CARGO_TARGET_*_LINKER=musl-gcc`. That produces a dynamic PIE
+which still needs `/lib/ld-musl-x86_64.so.1` at run time and fails on any host
+without musl installed. Letting rustc link with its own self-contained CRT
+objects produces a static-pie, which needs nothing and keeps ASLR. Verify:
 
-On authentication specifically: `pam_fprintd` is configured as `sufficient`,
-not `required`, so a failed or unavailable fingerprint falls through to your
-password. A fingerprint is a convenience, not a stronger factor than the
-password behind it. If you would rather not rely on it, leave PAM alone and
-use the CLI tools.
+```sh
+readelf -l target/…/validity-fprintd | grep INTERP   # must print nothing
+readelf -d target/…/validity-fprintd | grep NEEDED   # must print nothing
+```
+
+Releases build when a GitHub Release is **published**, not when a tag is
+pushed, so the notes are written by hand. Tag and push, draft the release with
+its notes, then publish it: CI builds both architectures, checks each binary is
+self-contained, builds the packages, and attaches everything. Assets are
+uploaded to the existing release, so the notes are never overwritten. To check
+a build without publishing, run the workflow manually against an existing tag.
+
+</details>
 
 ## Credit
 
@@ -467,7 +382,7 @@ reverse-engineering work of [python-validity](https://github.com/uunicorn/python
 Rust implementation, not a translation, but the protocol knowledge is theirs.
 
 If you want a working fingerprint reader today rather than a driver project,
-use python-validity — it is mature and covers these sensors.
+python-validity is mature and covers these sensors.
 
 ## License
 
