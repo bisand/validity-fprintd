@@ -1,0 +1,32 @@
+#!/bin/sh
+cat <<'MSG'
+
+validity-fprintd is installed but not yet running.
+
+It serves the same D-Bus name as fprintd (net.reactivated.Fprint), so the two
+cannot run together. If fprintd is installed, stop and disable it first:
+
+  rc-service fprintd stop
+  rc-update del fprintd default
+
+Then start this one:
+
+  rc-update add validity-fprintd default
+  rc-service validity-fprintd start
+
+Check that your sensor is recognised:
+
+  rc-service validity-fprintd stop
+  validity-provision
+  rc-service validity-fprintd start
+
+If it reports unformatted flash or an unpaired sensor, see "Provisioning a bare
+sensor" in /usr/share/doc/validity-fprintd/README.md. A sensor that has been
+used with Windows Hello is already provisioned.
+
+For fingerprint login, install fprintd-pam and reference pam_fprintd from
+/etc/pam.d, keeping it "sufficient" so a failed finger falls through to the
+password.
+
+MSG
+exit 0

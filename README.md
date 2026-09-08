@@ -177,10 +177,10 @@ cargo build --release
 ### Which method to use
 
 Prefer a native package where one exists: it links against your distribution's
-own libusb, so security fixes arrive with your normal updates. The Arch package
-below does this. The install script is for distributions without a package yet;
-it ships static binaries, which cannot pick up a system library fix without a
-new release.
+own libusb, so security fixes arrive with your normal updates. Recipes for
+Arch, Fedora and Alpine are in `packaging/`. The install script is for
+distributions without a package yet; it ships static binaries, which cannot
+pick up a system library fix without a new release.
 
 ### Quick install (any distribution)
 
@@ -247,6 +247,32 @@ reason.
 
 An AUR submission (`validity-fprintd-git`) is planned; AUR account registration
 is paused upstream at the time of writing.
+
+### Building the Fedora package
+
+```sh
+git clone https://github.com/bisand/validity-fprintd.git
+rpmbuild -ba validity-fprintd/packaging/fedora/validity-fprintd.spec
+sudo dnf install ~/rpmbuild/RPMS/*/validity-fprintd-*.rpm
+```
+
+Fingerprint login on Fedora is wired up with
+`sudo authselect enable-feature with-fingerprint`.
+
+### Building the Alpine package
+
+```sh
+git clone https://github.com/bisand/validity-fprintd.git
+cd validity-fprintd/packaging/alpine
+abuild -r
+```
+
+Alpine uses OpenRC, so the service comes from the `validity-fprintd-openrc`
+subpackage. `pam_fprintd` is in `fprintd-pam`.
+
+Both recipes build dynamically against the system libusb. Neither has been
+built or installed by the author, who has only Arch hardware; corrections are
+welcome.
 
 ### From source
 

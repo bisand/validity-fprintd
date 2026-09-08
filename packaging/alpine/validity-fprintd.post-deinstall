@@ -1,0 +1,17 @@
+#!/bin/sh
+cat <<'MSG'
+
+validity-fprintd removed.
+
+If you disabled fprintd for it, re-enable it with:
+
+  rc-update add fprintd default
+
+Fingerprint PAM rules are left untouched. Remove them if nothing else provides
+pam_fprintd, or authentication will point at a service that is gone.
+
+Sensor state (pairing, enrolments, calibration) lives on the sensor itself and
+is unaffected. The host-side calibration cache is /var/lib/validity-fprintd.
+
+MSG
+exit 0
