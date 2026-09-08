@@ -1,6 +1,6 @@
 [package]
 name = "validity-fprintd"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Rust driver for Synaptics/Validity match-on-chip fingerprint sensors (06cb:009a and friends)"
 license = "MIT"

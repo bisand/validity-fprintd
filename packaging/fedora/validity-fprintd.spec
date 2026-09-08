@@ -5,7 +5,7 @@ support. It serves the same D-Bus interface as fprintd, so pam_fprintd and the
 standard fprintd clients work against it unchanged.}
 
 Name:           validity-fprintd
-Version:        0.1.0
+Version:        0.1.1
 Release:        %autorelease
 Summary:        Fingerprint driver for Synaptics/Validity match-on-chip sensors
 
