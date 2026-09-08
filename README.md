@@ -177,19 +177,22 @@ cargo build --release
 ### Quick install (any distribution)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh -o install.sh
-less install.sh          # it runs as root; read it first
-sudo sh install.sh
+curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
 ```
 
 Downloads the latest release, verifies its SHA-256, installs the binaries and
 udev rules, and sets up the service for systemd or OpenRC. It refuses to
-install if the checksum cannot be fetched or does not match. Uninstall with
-`sudo sh install.sh --uninstall`.
+install if the checksum cannot be fetched or does not match.
 
-Piping straight into `sudo sh` also works, but only from an interactive
-terminal: `sudo` cannot prompt for a password when its standard input is the
-script being piped in.
+Uninstall:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh -s -- --uninstall
+```
+
+To read the script before running it as root, or to install from somewhere
+without a terminal for `sudo` to prompt on, download it first and run
+`sudo sh install.sh`.
 
 Release binaries are statically linked against musl with libusb built in, so
 they do not depend on the host's libc or libusb version.
