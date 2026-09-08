@@ -176,11 +176,15 @@ cargo build --release
 
 ### Which method to use
 
-Prefer a native package where one exists: it links against your distribution's
-own libusb, so security fixes arrive with your normal updates. Recipes for
-Arch, Fedora and Alpine are in `packaging/`. The install script is for
-distributions without a package yet; it ships static binaries, which cannot
-pick up a system library fix without a new release.
+The install script is the quickest route and installs a native package where
+one exists. Those packages carry statically linked binaries, so one artifact
+works on every version of a distribution family, at the cost of bundling libusb
+rather than using the system copy.
+
+If you would rather link the system libusb — so a libusb security fix arrives
+with your normal updates — build from the recipes in `packaging/`, which exist
+for Arch, Fedora and Alpine. That is also what belongs in a distribution's own
+repository.
 
 ### Quick install (any distribution)
 
@@ -188,9 +192,13 @@ pick up a system library fix without a new release.
 curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
 ```
 
-Downloads the latest release, verifies its SHA-256, installs the binaries and
-udev rules, and sets up the service for systemd or OpenRC. It refuses to
-install if the checksum cannot be fetched or does not match.
+Installs the native package for your distribution where there is one — `.deb`,
+`.rpm` or `.apk` — so removal goes through your package manager. Where there is
+not, it falls back to unpacking a tarball into `/usr/local`. Either way every
+download is checked against the release's `SHA256SUMS`, and it refuses to
+install if that cannot be fetched or does not match.
+
+Pass `FORCE_TARBALL=1` to skip the package even where one applies.
 
 Uninstall:
 

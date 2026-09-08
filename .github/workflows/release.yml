@@ -99,9 +99,16 @@ jobs:
           cp scripts/fetch-firmware.sh "dist/$NAME/share/"
           cp README.md LICENSE "dist/$NAME/"
 
-          # The tarball is what install.sh fetches: one download that also
+          # The tarball is what install.sh falls back to: one download that also
           # carries the service files, udev rules and firmware script.
           tar -C dist -czf "out/$NAME.tar.gz" "$NAME"
+
+          # Native packages install to /usr/bin, not /usr/local/bin where the
+          # tarball lands, so the service files need rewriting for them.
+          sed 's|/usr/local/bin/|/usr/bin/|' packaging/validity-fprintd.service \
+            > dist/validity-fprintd.service
+          sed 's|/usr/local/bin/|/usr/bin/|' packaging/openrc/validity-fprintd \
+            > dist/validity-fprintd.openrc
 
           # Individual binaries as well, so a single tool can be downloaded
           # without the tarball. Suffixed so architectures do not collide.
@@ -109,10 +116,41 @@ jobs:
             cp "dist/$NAME/bin/$b" "out/${b}-${{ matrix.target }}"
           done
 
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # deb, rpm and apk carrying the static binaries, so one artifact per
+      # format works on every version of a distribution family. The recipes in
+      # packaging/{aur,fedora,alpine} link the system libusb instead and are
+      # what belongs in a distribution's own repository.
+      - name: Build native packages
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          BINDIR: dist/${{ steps.package.outputs.name }}/bin
+        run: |
+          NFPM_VERSION="$(curl -sfL https://api.github.com/repos/goreleaser/nfpm/releases/latest \
+            | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
+          [ -n "$NFPM_VERSION" ] || { echo "::error::could not resolve the latest nfpm"; exit 1; }
+          echo "using nfpm $NFPM_VERSION"
+          curl -sfL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar xz -C /usr/local/bin nfpm
+
+          case "${{ matrix.target }}" in
+            x86_64-*)  export ARCH=amd64 ;;
+            aarch64-*) export ARCH=arm64 ;;
+            *) echo "::error::no package arch for ${{ matrix.target }}"; exit 1 ;;
+          esac
+
+          for fmt in deb rpm apk; do
+            nfpm package -f packaging/nfpm/nfpm.yaml -p "$fmt" -t out/
+          done
+          ls -l out/
+
+      - name: Checksum every artifact
+        run: |
           # One checksum file per target; the publish job concatenates them.
           ( cd out && sha256sum -- * > "../SHA256SUMS-${{ matrix.target }}" )
           mv "SHA256SUMS-${{ matrix.target }}" out/
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
