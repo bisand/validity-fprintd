@@ -15,37 +15,99 @@ daemon. It speaks the sensor's own protocol, and serves the same D-Bus
 interface, so `pam_fprintd`, GNOME and KDE settings, and the `fprintd-*` tools
 all work unchanged — fingerprint login for sudo, polkit and the lock screen.
 
-![validity-fprintd capturing a fingerprint and matching it on the sensor](docs/demo.gif)
-
 ## Install
+
+Assets live on the [latest release](https://github.com/bisand/validity-fprintd/releases/latest).
+The examples below use `0.1.1` and `x86_64`/`amd64`; substitute the current
+version, and `aarch64`/`arm64` on ARM.
+
+### Install script (any distribution)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/bisand/validity-fprintd/main/install.sh | sudo sh
 ```
 
-Installs the native package for your distribution — `.deb`, `.rpm`, `.apk` or
-`.pkg.tar.zst` — so removal goes through your package manager. Where there is no
-package it unpacks a tarball into `/usr/local` instead. Every download is
-checked against the release's `SHA256SUMS`, and it refuses to install if that
-cannot be fetched or does not match.
+Picks the native package for your system — `.deb`, `.rpm`, `.apk` or
+`.pkg.tar.zst` — so removal goes through your package manager, and falls back to
+a tarball where there is none. Every download is checked against the release's
+`SHA256SUMS`, and it refuses to install if that cannot be fetched or does not
+match.
 
-Then enable it, replacing the stock daemon — both claim the
-`net.reactivated.Fprint` D-Bus name and cannot run together:
+Uninstall with `curl -fsSL … | sudo sh -s -- --uninstall`. Pass
+`FORCE_TARBALL=1` to skip the package where one applies. To read the script
+before running it as root, download it first and run `sudo sh install.sh`.
+
+### Debian / Ubuntu
+
+```sh
+V=0.1.1
+curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd_${V}_amd64.deb
+sudo apt install ./validity-fprintd_${V}_amd64.deb
+```
+
+### Fedora / RHEL
+
+```sh
+V=0.1.1
+sudo dnf install https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd-$V-1.x86_64.rpm
+```
+
+### Arch / Omarchy
+
+```sh
+V=0.1.1
+curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd-$V-1-x86_64.pkg.tar.zst
+sudo pacman -U ./validity-fprintd-$V-1-x86_64.pkg.tar.zst
+```
+
+### Alpine
+
+```sh
+V=0.1.1
+curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd_${V}_x86_64.apk
+sudo apk add --allow-untrusted ./validity-fprintd_${V}_x86_64.apk
+```
+
+The packages are unsigned, hence `--allow-untrusted`. Check the download
+against `SHA256SUMS` on the release if you want the same verification the
+install script does.
+
+### Tarball (no package manager)
+
+```sh
+V=0.1.1
+curl -fLO https://github.com/bisand/validity-fprintd/releases/download/v$V/validity-fprintd-$V-x86_64-unknown-linux-musl.tar.gz
+tar xzf validity-fprintd-$V-x86_64-unknown-linux-musl.tar.gz
+cd validity-fprintd-$V-x86_64-unknown-linux-musl
+sudo install -m755 bin/* /usr/local/bin/
+sudo install -m644 share/70-validity-fprintd.rules /etc/udev/rules.d/
+sudo install -m644 share/validity-fprintd.service /etc/systemd/system/
+```
+
+### Then enable it
+
+The stock `fprintd` claims the same D-Bus name and cannot run alongside this
+one. Masking it also stops D-Bus activating it:
 
 ```sh
 sudo systemctl mask --now fprintd.service
 sudo systemctl enable --now validity-fprintd.service
 ```
 
-Check that your sensor is recognised:
+On Alpine and other OpenRC systems:
+
+```sh
+sudo rc-update del fprintd default
+sudo rc-update add validity-fprintd default
+sudo rc-service validity-fprintd start
+```
+
+Check that your sensor is recognised — the daemon holds the USB interface, so
+it steps aside:
 
 ```sh
 sudo systemctl stop validity-fprintd && sudo validity-probe; sudo systemctl start validity-fprintd
 ```
-
-Uninstall with `curl -fsSL … | sudo sh -s -- --uninstall`, and pass
-`FORCE_TARBALL=1` to skip the package where one applies. To read the script
-before running it as root, download it first and run `sudo sh install.sh`.
 
 ### Fingerprint login
 
@@ -94,12 +156,12 @@ falls through to your password.
 - **Paired to another host** — the sensor came from a different machine. Using
   it needs a factory reset.
 
-### Other ways to install
+### Building a package yourself
 
-Native packages built from source link your distribution's own libusb, so a
-libusb security fix arrives with your normal updates. The release packages
-above bundle it instead, which is what lets one artifact work on every version
-of a distribution family.
+The released packages bundle libusb, which is what lets one artifact work on
+every version of a distribution family. Building from the recipes in
+`packaging/` links your distribution's own libusb instead, so a libusb security
+fix arrives with your normal updates.
 
 <details>
 <summary>Arch, Fedora, Alpine and from-source builds</summary>
@@ -210,6 +272,8 @@ A fingerprint is a convenience, not a stronger factor than the password behind
 it. If you would rather not rely on it, leave PAM alone and use the CLI tools.
 
 ## Tools
+
+![validity-fprintd capturing a fingerprint and matching it on the sensor](docs/demo.gif)
 
 Read-only unless noted. The daemon holds the USB interface, so stop it first:
 
