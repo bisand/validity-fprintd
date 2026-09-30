@@ -18,7 +18,8 @@ const DEVICE_PATH: &str = "/net/reactivated/Fprint/Device/0";
 const MANAGER_PATH: &str = "/net/reactivated/Fprint/Manager";
 const BUS_NAME: &str = "net.reactivated.Fprint";
 
-/// How long to wait for the user to present a finger.
+/// How long one capture waits for a finger. An enrolment scan gives up after
+/// it; a verification starts another, and waits until it is stopped.
 const FINGER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The sensor session, opened lazily and shared across D-Bus calls.
@@ -341,15 +342,39 @@ impl Device {
             let started = std::time::Instant::now();
             let _ = Device::verify_finger_selected(&ctxt, &finger_name).await;
 
+            // Like fprintd, a verification lasts until a finger is read or it
+            // is stopped: waiting for a finger is not an error, and a scan
+            // that read badly is a retry, said without ending anything, for
+            // pam_fprintd to ask for the finger again.
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let retry_ctxt = ctxt.clone();
+            tokio::spawn(async move {
+                while rx.recv().await.is_some() {
+                    if capture::is_current(op) {
+                        let _ = Device::verify_status(&retry_ctxt, "verify-retry-scan", false).await;
+                    }
+                }
+            });
             let outcome = tokio::task::spawn_blocking(move || {
                 capture::run_as(op);
-                with_sensor(&slot, |s| s.verify(&user, FINGER_TIMEOUT))
+                loop {
+                    let outcome = with_sensor(&slot, |s| s.verify(&user, FINGER_TIMEOUT));
+                    match &outcome {
+                        Ok(VerifyOutcome::Retry(why)) if capture::is_current(op) => {
+                            if !why.contains(capture::NO_FINGER) {
+                                let _ = tx.send(());
+                            }
+                        }
+                        _ => return outcome,
+                    }
+                }
             })
             .await;
 
             let result = match outcome {
                 Ok(Ok(VerifyOutcome::Match { .. })) => "verify-match",
                 Ok(Ok(VerifyOutcome::NoMatch)) => "verify-no-match",
+                // Only a stopped one gets here, and it says nothing.
                 Ok(Ok(VerifyOutcome::Retry(_))) => "verify-retry-scan",
                 Ok(Err(_)) | Err(_) => "verify-unknown-error",
             };

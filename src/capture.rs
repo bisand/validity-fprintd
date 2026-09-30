@@ -44,6 +44,10 @@ pub fn is_current(op: u64) -> bool {
     CURRENT.load(Ordering::SeqCst) == op
 }
 
+/// What a capture fails with when no finger came before its timeout: nothing
+/// went wrong, and a verification simply waits again.
+pub const NO_FINGER: &str = "no finger was presented";
+
 /// Mark this thread's captures as `op`'s, until the next call. A thread that
 /// never calls this — the command-line tools — is never stopped.
 pub fn run_as(op: u64) {
@@ -643,7 +647,7 @@ pub fn capture(
             }
             let Some(b) = tls.usb().poll_interrupt(Duration::from_millis(100))? else {
                 if Instant::now() >= finger_deadline {
-                    bail!("timed out waiting for a sensor interrupt");
+                    bail!(NO_FINGER);
                 }
                 continue;
             };
