@@ -8,8 +8,10 @@ url="https://github.com/bisand/validity-fprintd"
 arch="x86_64 aarch64"
 license="MIT"
 # libusb is picked up automatically as so:libusb-1.0.so.0; zbus speaks D-Bus
-# itself, so only the bus daemon is needed at run time.
-depends="dbus"
+# itself, so only the bus daemon is needed at run time, and polkit, which is
+# asked before a fingerprint is added or removed. Not beside fprintd: both own
+# net.reactivated.Fprint and ship its D-Bus policy and polkit actions.
+depends="dbus polkit !fprintd"
 makedepends="cargo libusb-dev"
 # fprintd provides pam_fprintd and the fprintd-* clients, which this daemon
 # serves but does not replace.
@@ -42,6 +44,12 @@ package() {
 
 	install -Dm644 udev/70-validity-fprintd.rules \
 		"$pkgdir/usr/lib/udev/rules.d/70-validity-fprintd.rules"
+	# Without fprintd, nothing else lets root own the bus name, or defines the
+	# polkit actions the daemon asks about.
+	install -Dm644 packaging/net.reactivated.Fprint.conf \
+		"$pkgdir/usr/share/dbus-1/system.d/net.reactivated.Fprint.conf"
+	install -Dm644 packaging/alpine/net.reactivated.fprint.device.policy \
+		"$pkgdir/usr/share/polkit-1/actions/net.reactivated.fprint.device.policy"
 	install -Dm755 scripts/fetch-firmware.sh \
 		"$pkgdir/usr/share/$pkgname/fetch-firmware.sh"
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

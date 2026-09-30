@@ -3,13 +3,9 @@ cat <<'MSG'
 
 validity-fprintd is installed but not yet running.
 
-It serves the same D-Bus name as fprintd (net.reactivated.Fprint), so the two
-cannot run together. If fprintd is installed, stop and disable it first:
-
-  rc-service fprintd stop
-  rc-update del fprintd default
-
-Then start this one:
+It serves the same D-Bus name as fprintd (net.reactivated.Fprint), so it
+cannot be installed beside it; fprintd-pam, which only holds pam_fprintd, can.
+Start it with:
 
   rc-update add validity-fprintd default
   rc-service validity-fprintd start
