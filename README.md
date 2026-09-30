@@ -242,6 +242,27 @@ The type-2 capture path is transcribed from the reference implementation and
 compiles, but no type-2 hardware was available. It also needs factory
 calibration data (subtag 7), which type-1 sensors do not report.
 
+## Who may do what
+
+The daemon runs as root, and any process on the system bus can call it, so it
+decides for itself from the caller's uid whose fingerprints a call may touch:
+
+- **A caller may name only itself.** An empty username means the caller's own
+  account, as with stock fprintd. Naming any other account is allowed only for
+  callers running as root, which is what PAM does when it checks a finger for
+  whoever is logging in. Anyone else naming another account is refused.
+  Otherwise a user could enrol their own finger under another account's name
+  and pass as that account wherever a fingerprint is accepted.
+- **Adding or removing fingerprints asks polkit** for
+  `net.reactivated.fprint.device.enroll`, as stock fprintd does, and polkit may
+  ask for the password. Root is not asked. Without polkit, the answer is no.
+- **Only the client holding the claim** can enrol, verify, stop or release
+  through it. Another client cannot drive or drop someone else's claim.
+
+Most distributions get the polkit actions from stock fprintd, which they
+install with `pam_fprintd`. The Alpine package ships them itself, along with
+the D-Bus policy, because there `pam_fprintd` comes without the daemon.
+
 ## Warranty and risk
 
 There is none: this is MIT-licensed and provided as is, without warranty of any

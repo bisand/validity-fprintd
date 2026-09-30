@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  The actions stock fprintd defines, for systems where validity-fprintd is the
+  daemon and fprintd, which ships these, is not installed (on Alpine,
+  pam_fprintd comes in fprintd-pam alone).
+
+  validity-fprintd asks for "enroll" before adding or removing a user's
+  fingerprints. It is the caller's own password, whatever kind of session it is
+  in: a system without elogind has no "active" sessions for polkit to see.
+  Acting for another account is for root alone, and never asks.
+-->
+<policyconfig>
+  <vendor>validity-fprintd</vendor>
+  <vendor_url>https://github.com/bisand/validity-fprintd</vendor_url>
+
+  <action id="net.reactivated.fprint.device.verify">
+    <description>Verify a fingerprint</description>
+    <message>Privileges are required to verify fingerprints.</message>
+    <defaults>
+      <allow_any>yes</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="net.reactivated.fprint.device.enroll">
+    <description>Enroll or remove fingerprints</description>
+    <message>Authentication is required to add or remove your fingerprints.</message>
+    <defaults>
+      <allow_any>auth_self_keep</allow_any>
+      <allow_inactive>auth_self_keep</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="net.reactivated.fprint.device.setusername">
+    <description>Select a user for fingerprint operations</description>
+    <message>Authentication is required to manage another user's fingerprints.</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

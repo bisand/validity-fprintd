@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use validity_fprintd::device::{Sensor, VerifyOutcome};
 use zbus::object_server::SignalContext;
+use validity_fprintd::authorize::ENROLL;
 use zbus::zvariant::OwnedObjectPath;
 
 const DEVICE_PATH: &str = "/net/reactivated/Fprint/Device/0";
@@ -124,8 +125,12 @@ impl Device {
         Ok(())
     }
 
-    async fn release(&self) -> zbus::fdo::Result<()> {
+    async fn release(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<()> {
         let mut state = self.state.lock().await;
+        holds_claim(&state, &hdr)?;
         if let Some(user) = &state.claimed_by {
             eprintln!("release: {user}");
         }
@@ -158,6 +163,7 @@ impl Device {
         username: String,
     ) -> zbus::fdo::Result<()> {
         let user = resolve_user(conn, hdr.sender().map(|s| s.as_str()), &username).await?;
+        authorize(conn, hdr.sender().map(|s| s.as_str()), ENROLL).await?;
         let slot = self.sensor.clone();
         tokio::task::spawn_blocking(move || {
             with_sensor(&slot, |s| s.delete_enrolled_fingers(&user))
@@ -169,14 +175,20 @@ impl Device {
     }
 
     /// Same as `DeleteEnrolledFingers`, but for the claiming user.
-    async fn delete_enrolled_fingers2(&self) -> zbus::fdo::Result<()> {
-        let user = self
-            .state
-            .lock()
-            .await
-            .claimed_by
-            .clone()
-            .ok_or_else(|| zbus::fdo::Error::Failed("device is not claimed".into()))?;
+    async fn delete_enrolled_fingers2(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> zbus::fdo::Result<()> {
+        let user = {
+            let state = self.state.lock().await;
+            holds_claim(&state, &hdr)?;
+            state
+                .claimed_by
+                .clone()
+                .ok_or_else(|| zbus::fdo::Error::Failed("device is not claimed".into()))?
+        };
+        authorize(conn, hdr.sender().map(|s| s.as_str()), ENROLL).await?;
 
         let slot = self.sensor.clone();
         tokio::task::spawn_blocking(move || {
@@ -193,9 +205,16 @@ impl Device {
     async fn enroll_start(
         &self,
         #[zbus(signal_context)] ctxt: SignalContext<'_>,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
         finger_name: String,
     ) -> zbus::fdo::Result<()> {
+        holds_claim(&*self.state.lock().await, &hdr)?;
+        // Adding a finger is what lets someone in later: polkit decides, as
+        // it does for stock fprintd, and may ask for the password.
+        authorize(conn, hdr.sender().map(|s| s.as_str()), ENROLL).await?;
         let mut state = self.state.lock().await;
+        holds_claim(&state, &hdr)?;
         let Some(user) = state.claimed_by.clone() else {
             return Err(zbus::fdo::Error::Failed("device is not claimed".into()));
         };
@@ -272,8 +291,13 @@ impl Device {
         Ok(())
     }
 
-    async fn enroll_stop(&self) -> zbus::fdo::Result<()> {
-        self.state.lock().await.busy = false;
+    async fn enroll_stop(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let mut state = self.state.lock().await;
+        holds_claim(&state, &hdr)?;
+        state.busy = false;
         Ok(())
     }
 
@@ -282,9 +306,11 @@ impl Device {
     async fn verify_start(
         &self,
         #[zbus(signal_context)] ctxt: SignalContext<'_>,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
         finger_name: String,
     ) -> zbus::fdo::Result<()> {
         let mut state = self.state.lock().await;
+        holds_claim(&state, &hdr)?;
         let Some(user) = state.claimed_by.clone() else {
             return Err(zbus::fdo::Error::Failed("device is not claimed".into()));
         };
@@ -323,8 +349,13 @@ impl Device {
         Ok(())
     }
 
-    async fn verify_stop(&self) -> zbus::fdo::Result<()> {
-        self.state.lock().await.busy = false;
+    async fn verify_stop(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<()> {
+        let mut state = self.state.lock().await;
+        holds_claim(&state, &hdr)?;
+        state.busy = false;
         Ok(())
     }
 
@@ -354,28 +385,92 @@ async fn peer_is_alive(conn: &zbus::Connection, name: &str) -> bool {
     proxy.name_has_owner(bus_name).await.unwrap_or(false)
 }
 
-/// fprintd clients pass an empty username to mean "the calling user".
-///
-/// That has to be resolved from the D-Bus peer's uid. Reading the daemon's own
-/// environment would always yield root, since it runs as a system service.
-async fn resolve_user(
-    conn: &zbus::Connection,
-    sender: Option<&str>,
-    username: &str,
-) -> zbus::fdo::Result<String> {
-    if !username.is_empty() {
-        return Ok(username.to_string());
-    }
-
+/// The uid and login name of the process that sent a message.
+async fn caller(conn: &zbus::Connection, sender: Option<&str>) -> zbus::fdo::Result<(u32, String)> {
     let sender = sender
         .ok_or_else(|| zbus::fdo::Error::Failed("message has no sender to resolve".into()))?;
     let proxy = zbus::fdo::DBusProxy::new(conn).await?;
     let bus_name = zbus::names::BusName::try_from(sender.to_string())
         .map_err(|e| zbus::fdo::Error::Failed(format!("bad sender name: {e}")))?;
     let uid = proxy.get_connection_unix_user(bus_name).await?;
+    let name = validity_fprintd::device::username_for_uid(uid)
+        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))?;
+    Ok((uid, name))
+}
 
-    validity_fprintd::device::username_for_uid(uid)
-        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
+/// Whose fingerprints a call is about.
+///
+/// fprintd clients pass an empty username to mean "the calling user", which is
+/// resolved from the D-Bus peer's uid: reading the daemon's own environment
+/// would always yield root, since it runs as a system service. Any other name
+/// is honoured only for root (see [`validity_fprintd::authorize::whose`]).
+async fn resolve_user(
+    conn: &zbus::Connection,
+    sender: Option<&str>,
+    username: &str,
+) -> zbus::fdo::Result<String> {
+    let (uid, name) = caller(conn, sender).await?;
+    validity_fprintd::authorize::whose(uid, &name, username).map_err(zbus::fdo::Error::AccessDenied)
+}
+
+/// Whether the sender of `hdr` holds the claim, which enrolling, verifying,
+/// stopping and releasing all act through. Another client may not drive or
+/// drop someone else's.
+fn holds_claim(state: &DeviceState, hdr: &zbus::message::Header<'_>) -> zbus::fdo::Result<()> {
+    let sender = hdr.sender().map(|s| s.as_str());
+    match &state.claim_owner {
+        Some(owner) if Some(owner.as_str()) == sender => Ok(()),
+        Some(_) => Err(zbus::fdo::Error::AccessDenied(
+            "the device is claimed by another client".into(),
+        )),
+        None => Err(zbus::fdo::Error::Failed("device is not claimed".into())),
+    }
+}
+
+/// Ask polkit whether the sender may do `action`, letting it ask for a
+/// password through the sender's authentication agent. Root needs no asking:
+/// it is PAM, or an administrator.
+///
+/// Without polkit there is no one to ask, and the answer is no.
+async fn authorize(
+    conn: &zbus::Connection,
+    sender: Option<&str>,
+    action: &str,
+) -> zbus::fdo::Result<()> {
+    use std::collections::HashMap;
+    use zbus::zvariant::Value;
+
+    let (uid, _) = caller(conn, sender).await?;
+    if uid == 0 {
+        return Ok(());
+    }
+    let sender = sender.unwrap_or_default();
+    let proxy = zbus::Proxy::new(
+        conn,
+        "org.freedesktop.PolicyKit1",
+        "/org/freedesktop/PolicyKit1/Authority",
+        "org.freedesktop.PolicyKit1.Authority",
+    )
+    .await
+    .map_err(|e| zbus::fdo::Error::AccessDenied(format!("polkit is needed to {action}: {e}")))?;
+    let mut subject: HashMap<&str, Value<'_>> = HashMap::new();
+    subject.insert("name", Value::from(sender));
+    let details: HashMap<&str, &str> = HashMap::new();
+    // 1: AllowUserInteraction, so polkit may ask for a password.
+    let (authorized, _challenge, _): (bool, bool, HashMap<String, String>) = proxy
+        .call(
+            "CheckAuthorization",
+            &(("system-bus-name", subject), action, details, 1u32, ""),
+        )
+        .await
+        .map_err(|e| zbus::fdo::Error::AccessDenied(format!("polkit: {e}")))?;
+    if authorized {
+        Ok(())
+    } else {
+        Err(zbus::fdo::Error::AccessDenied(format!(
+            "not authorized for {action}"
+        )))
+    }
 }
 
 #[tokio::main]
