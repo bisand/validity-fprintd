@@ -8,6 +8,7 @@ use anyhow::Result;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::Mutex;
+use validity_fprintd::capture;
 use validity_fprintd::device::{Sensor, VerifyOutcome};
 use zbus::object_server::SignalContext;
 use validity_fprintd::authorize::ENROLL;
@@ -122,6 +123,8 @@ impl Device {
         state.claimed_by = Some(user);
         state.claim_owner = sender;
         state.busy = false;
+        // Whatever was going on stops, and is not heard of again.
+        capture::stop();
         Ok(())
     }
 
@@ -137,6 +140,8 @@ impl Device {
         state.claimed_by = None;
         state.claim_owner = None;
         state.busy = false;
+        // Whatever was going on stops, and is not heard of again.
+        capture::stop();
         Ok(())
     }
 
@@ -222,6 +227,7 @@ impl Device {
             return Err(zbus::fdo::Error::Failed("an operation is already running".into()));
         }
         state.busy = true;
+        let op = capture::begin();
         drop(state);
 
         // Clients may ask for "any"; the sensor needs a concrete finger.
@@ -246,7 +252,10 @@ impl Device {
                     Ok(_) => "enroll-stage-passed",
                     Err(_) => "enroll-retry-scan",
                 };
-                let _ = Device::enroll_status(&stage_ctxt, result, false).await;
+                // A stopped enrolment says nothing more.
+                if capture::is_current(op) {
+                    let _ = Device::enroll_status(&stage_ctxt, result, false).await;
+                }
             }
         });
 
@@ -254,6 +263,7 @@ impl Device {
             eprintln!("enroll: starting {finger} for {user}");
             let started = std::time::Instant::now();
             let outcome = tokio::task::spawn_blocking(move || {
+                capture::run_as(op);
                 with_sensor(&slot, |s| {
                     s.enroll(&user, &finger, FINGER_TIMEOUT, |stage, err| {
                         match err {
@@ -284,8 +294,7 @@ impl Device {
                 }
             };
             eprintln!("enroll: {result} after {:.1}s", started.elapsed().as_secs_f32());
-            let _ = Device::enroll_status(&ctxt, result, true).await;
-            shared.lock().await.busy = false;
+            finish(&shared, op, || Device::enroll_status(&ctxt, result, true)).await;
         });
 
         Ok(())
@@ -298,6 +307,8 @@ impl Device {
         let mut state = self.state.lock().await;
         holds_claim(&state, &hdr)?;
         state.busy = false;
+        // Whatever was going on stops, and is not heard of again.
+        capture::stop();
         Ok(())
     }
 
@@ -318,6 +329,7 @@ impl Device {
             return Err(zbus::fdo::Error::Failed("an operation is already running".into()));
         }
         state.busy = true;
+        let op = capture::begin();
         drop(state);
 
         let ctxt = ctxt.to_owned();
@@ -330,6 +342,7 @@ impl Device {
             let _ = Device::verify_finger_selected(&ctxt, &finger_name).await;
 
             let outcome = tokio::task::spawn_blocking(move || {
+                capture::run_as(op);
                 with_sensor(&slot, |s| s.verify(&user, FINGER_TIMEOUT))
             })
             .await;
@@ -341,9 +354,7 @@ impl Device {
                 Ok(Err(_)) | Err(_) => "verify-unknown-error",
             };
             eprintln!("verify: {result} after {:.1}s", started.elapsed().as_secs_f32());
-
-            let _ = Device::verify_status(&ctxt, result, true).await;
-            shared.lock().await.busy = false;
+            finish(&shared, op, || Device::verify_status(&ctxt, result, true)).await;
         });
 
         Ok(())
@@ -356,6 +367,8 @@ impl Device {
         let mut state = self.state.lock().await;
         holds_claim(&state, &hdr)?;
         state.busy = false;
+        // Whatever was going on stops, and is not heard of again.
+        capture::stop();
         Ok(())
     }
 
@@ -369,6 +382,25 @@ impl Device {
     #[zbus(signal)]
     async fn enroll_status(ctxt: &SignalContext<'_>, result: &str, done: bool)
         -> zbus::Result<()>;
+}
+
+/// End operation `op`: say how it went with `say`, and free the device — but
+/// only if it is still the one going on. One that was stopped, released or
+/// replaced says nothing: its result belongs to nobody now, and a
+/// `verify-match` heard by whoever claimed the device next would let them in
+/// on a finger they never asked about.
+async fn finish<F>(state: &Mutex<DeviceState>, op: u64, say: impl FnOnce() -> F)
+where
+    F: std::future::Future<Output = zbus::Result<()>>,
+{
+    let mut state = state.lock().await;
+    if !capture::is_current(op) {
+        return;
+    }
+    // Said with the state held, so nothing can be started or stopped between
+    // the check and the signal.
+    let _ = say().await;
+    state.busy = false;
 }
 
 /// Is `name` still present on the bus?
