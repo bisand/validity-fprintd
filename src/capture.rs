@@ -13,7 +13,47 @@ use crate::timeslot::{
 use crate::tls::Tls;
 use crate::usb::check_status;
 use anyhow::{bail, Context, Result};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+/// The operation the sensor is doing on the daemon's behalf. A capture begun
+/// for an older one stops waiting for a finger: see [`stopped`].
+static CURRENT: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// The operation this thread's captures belong to, when it is one.
+    static MINE: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+/// Begin a new operation, stopping whichever one was going on. Returns the
+/// new one, for [`run_as`] on the thread that does it and for [`is_current`]
+/// before anything it found is said.
+pub fn begin() -> u64 {
+    CURRENT.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Stop the operation going on, if any: its capture gives up waiting for a
+/// finger within one poll, and [`is_current`] no longer holds for it.
+pub fn stop() {
+    CURRENT.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Whether `op` is still the operation going on, not stopped or replaced.
+pub fn is_current(op: u64) -> bool {
+    CURRENT.load(Ordering::SeqCst) == op
+}
+
+/// Mark this thread's captures as `op`'s, until the next call. A thread that
+/// never calls this — the command-line tools — is never stopped.
+pub fn run_as(op: u64) {
+    MINE.with(|m| m.set(Some(op)));
+}
+
+/// Whether this thread's operation was stopped or replaced.
+pub(crate) fn stopped() -> bool {
+    MINE.with(Cell::get).is_some_and(|op| !is_current(op))
+}
 
 /// Chunk appended to configure the reply format.
 const CHUNK_REPLY_CONFIG: u16 = 0x17;
@@ -593,10 +633,20 @@ pub fn capture(
             bail!("unexpected interrupt while starting capture: {}", hex::encode(&b));
         }
 
-        // Wait for the finger.
+        // Wait for the finger, or for the operation to be stopped: a scan
+        // nobody wants any more must not take the next finger that touches
+        // the sensor, nor keep it from the operation that does.
         let finger_deadline = Instant::now() + finger_timeout;
         loop {
-            let b = wait_int(tls, finger_deadline)?;
+            if stopped() {
+                bail!("stopped");
+            }
+            let Some(b) = tls.usb().poll_interrupt(Duration::from_millis(100))? else {
+                if Instant::now() >= finger_deadline {
+                    bail!("timed out waiting for a sensor interrupt");
+                }
+                continue;
+            };
             if b.first() == Some(&2) {
                 break;
             }
@@ -802,5 +852,30 @@ impl Calibration {
         // A cache write failure is not fatal; it only costs time next run.
         let _ = c.save();
         Ok(c)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{begin, is_current, run_as, stop, stopped};
+
+    #[test]
+    fn a_stopped_or_replaced_operation_is_stopped_and_says_so() {
+        // Never marked: the command-line tools are never stopped.
+        assert!(!stopped());
+
+        let first = begin();
+        run_as(first);
+        assert!(is_current(first) && !stopped());
+
+        // Starting another stops the first.
+        let second = begin();
+        assert!(!is_current(first) && stopped(), "replaced");
+        run_as(second);
+        assert!(!stopped());
+
+        // So does stopping, and nothing starts again by itself.
+        stop();
+        assert!(!is_current(second) && stopped(), "stopped");
     }
 }

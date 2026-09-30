@@ -180,6 +180,11 @@ pub fn enroll(
                     break;
                 }
             }
+            Err(_) if crate::capture::stopped() => {
+                // Stopped: nobody is waiting for another scan.
+                let _ = glow_end_scan(tls);
+                bail!("enrolment stopped");
+            }
             Err(e) => {
                 // A bad scan is recoverable; ask for another.
                 on_stage(stage, Some(&format!("{e:#}")));
