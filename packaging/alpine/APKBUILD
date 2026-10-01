@@ -1,7 +1,7 @@
 # Contributor: André Biseth <andre@biseth.net>
 # Maintainer: André Biseth <andre@biseth.net>
 pkgname=validity-fprintd
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=0
 pkgdesc="Rust fingerprint driver and fprintd-compatible daemon for Synaptics/Validity match-on-chip sensors"
 url="https://github.com/bisand/validity-fprintd"
@@ -65,4 +65,4 @@ openrc() {
 	install -Dm755 "$srcdir"/initd "$subpkgdir/etc/init.d/$pkgname"
 }
 
-sha512sums="SKIP  validity-fprintd-0.1.2.tar.gz"
+sha512sums="SKIP  validity-fprintd-0.1.3.tar.gz"
